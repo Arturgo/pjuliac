@@ -30,7 +30,7 @@ open Ast
 %nonassoc NON unaire
 %right PUIS
 %left POINT
-
+%nonassoc error
 
 
 %start fichier
@@ -188,6 +188,7 @@ expr_avec_prefixe:
 else_bloc:
 | END { ExprListe([]) }
 | ELSE; _bloc = bloc; END { ExprListe(_bloc) }
+| ELSE; IF %prec error { failwith "else if -> elseif" }
 | ELSEIF; _expr = expr; _bloc = bloc_sans_prefixe; _else = else_bloc { 
    ExprIfElse(_expr, ExprListe(_bloc), _else) 
 }

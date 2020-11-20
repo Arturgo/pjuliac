@@ -37,7 +37,7 @@ rule token = parse
 | '\n' { new_line lexbuf; if !semi then (semi := false; SEMI) else token lexbuf }
 
 (* TODO : gérer les commentaires entre le else et le if *)
-| "else if" { raise (Failure "else if -> elseif") }
+(*| "else if" { raise (Failure "else if -> elseif") }*)
 
 | entier as _entier { semi := true; ENTIER(_entier) }
 | chaine as _chaine { semi := true; CHAINE(_chaine) }
