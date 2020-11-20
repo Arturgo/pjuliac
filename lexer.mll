@@ -36,11 +36,11 @@ rule token = parse
 
 | '\n' { new_line lexbuf; if !semi then (semi := false; SEMI) else token lexbuf }
 
-| entier as _entier { semi := true; ENTIER(Int64.of_string _entier) }
+| entier as _entier { semi := true; ENTIER(Int64.of_string ("0u" ^ _entier)) }
 | chaine as _chaine { semi := true; CHAINE(_chaine) }
 | ident as _ident '(' { semi := false; IDENT_PARG(_ident) }
-| entier as _entier '(' { semi := false; ENTIER_PARG(Int64.of_string _entier) }
-| (entier as _entier) (ident as _ident) { semi := true; ENTIER_IDENT(Int64.of_string _entier, _ident) }
+| entier as _entier '(' { semi := false; ENTIER_PARG(Int64.of_string ("0u" ^ _entier)) }
+| (entier as _entier) (ident as _ident) { semi := true; ENTIER_IDENT(Int64.of_string ("0u" ^ _entier), _ident) }
 | ')' (ident as _ident) { semi := true; PARD_IDENT(_ident) }
 
 | ident as _ident { 
