@@ -6,14 +6,14 @@ open Ast
 
 %token <string> IDENT
 %token <string> IDENT_PARG
-%token <string> ENTIER_PARG
-%token <string * string> ENTIER_IDENT
+%token <int64> ENTIER_PARG
+%token <int64 * string> ENTIER_IDENT
 %token <string> PARD_IDENT
 
 %token SEMI VIRGULE PARG PARD POINT EG_SIGNE TYPAGE TO
 %token EOF
 
-%token <string> ENTIER
+%token <int64> ENTIER
 %token <string> CHAINE
 %token <bool> BOOLEEN
 

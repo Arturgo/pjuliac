@@ -7,7 +7,7 @@ and decl =
 | DeclFonction of string * (string * string option) list * string option * expr
 | DeclExpr of expr
 
-and cst = CInt of string | CString of string | CBool of bool
+and cst = CInt of int64 | CString of string | CBool of bool
 
 and expr =
 | ExprCst of cst
