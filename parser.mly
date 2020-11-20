@@ -121,7 +121,6 @@ expr_sans_prefixe:
 | _ident = IDENT_PARG; _args = separated_list(VIRGULE, expr); PARD {
    ExprCall(_ident, _args)
 }
-;
 
 (* Opérations arithmétiques sans préfixe *)
 | _lexpr = expr_sans_prefixe; op = operateur; _rexpr = expr { ExprCall(op, [_lexpr; _rexpr]) }
