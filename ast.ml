@@ -8,6 +8,7 @@ and decl =
 | DeclExpr of expr
 
 and cst = CInt of int64 | CString of string | CBool of bool
+and typeEl = Any|Nothing|Int64|Bool|String|S
 
 and expr =
 | ExprCst of cst
@@ -18,6 +19,16 @@ and expr =
 | ExprIfElse of expr * expr * expr
 | ExprFor of string * expr * expr * expr
 | ExprWhile of expr * expr
+
+and exprTyp =
+| ExprCstTyp of cst * typeEl
+| ExprCallTyp of string * expr list * typeEl
+| ExprListeTyp of expr list * typeEl
+| ExprAssignementTyp of lvalue * expr option * typeEl
+| ExprReturnTyp of expr option * typeEl
+| ExprIfElseTyp of expr * expr * expr * typeEl
+| ExprForTyp of string * expr * expr * expr * typeEl
+| ExprWhileTyp of expr * expr * typeEl
 
 and lvalue =
 | LvalueVar of string
