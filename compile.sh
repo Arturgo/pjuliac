@@ -24,6 +24,9 @@ ocamlopt -c lexer.ml
 ocamlc -c julia.ml
 ocamlopt -c julia.ml
 
-ocamlopt -o pjuliac ast.cmx lexer.cmx parser.cmx julia.cmx
+ocamlc -c typeur.ml
+ocamlopt -c typeur.ml
+
+ocamlopt -o pjuliac ast.cmx lexer.cmx parser.cmx julia.cmx typeur.cmx
 
 cp pjuliac ../pjuliac
