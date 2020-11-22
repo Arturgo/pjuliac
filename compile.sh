@@ -5,6 +5,7 @@ mkdir _build
 cp *.mly _build/
 cp *.mll _build/
 cp *.ml _build/
+cp *.mli _build/
 
 cd _build
 
@@ -21,12 +22,23 @@ ocamlopt -c parser.ml
 ocamlc -c lexer.ml
 ocamlopt -c lexer.ml
 
-ocamlc -c julia.ml
-ocamlopt -c julia.ml
-
 ocamlc -c typeur.ml
 ocamlopt -c typeur.ml
 
-ocamlopt -o pjuliac ast.cmx lexer.cmx parser.cmx julia.cmx typeur.cmx
+ocamlc -c x86_64.mli
+ocamlc -c x86_64.ml
+ocamlopt -c x86_64.ml
+
+ocamlc -c codegen.ml
+ocamlopt -c codegen.ml
+
+ocamlc -c julia.ml
+ocamlopt -c julia.ml
+
+ocamlopt -o pjuliac ast.cmx lexer.cmx parser.cmx typeur.cmx x86_64.cmx codegen.cmx julia.cmx
 
 cp pjuliac ../pjuliac
+
+./pjuliac > test.s
+
+g++ -o test test.s -no-pie

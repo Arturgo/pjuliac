@@ -107,14 +107,14 @@ expr_sans_prefixe:
 
 (* Blocs parenthésés *)
 | _entier_ident = ENTIER_IDENT { 
-   ExprCall("@fois", [ExprCst(CInt (fst _entier_ident)); ExprAssignement(LvalueVar(snd _entier_ident), None)])
+   ExprCall("__fois", [ExprCst(CInt (fst _entier_ident)); ExprAssignement(LvalueVar(snd _entier_ident), None)])
 }
 | _entier = ENTIER_PARG; _bloc = bloc_un; PARD { 
-   ExprCall("@fois", [ExprCst(CInt _entier); ExprListe(_bloc)]) 
+   ExprCall("__fois", [ExprCst(CInt _entier); ExprListe(_bloc)]) 
 }
 | PARG; _bloc = bloc_un; PARD { ExprListe(_bloc) }
 | PARG; _expr = expr; _ident = PARD_IDENT { 
-   ExprCall("@fois", [_expr; ExprAssignement(LvalueVar(_ident), None)])
+   ExprCall("__fois", [_expr; ExprAssignement(LvalueVar(_ident), None)])
 }
 
 (* Appel de fonction *)
@@ -151,7 +151,7 @@ expr_sans_prefixe:
 }
 
 (* Non *)
-| NON; _expr = expr { ExprCall("@non", [_expr]) }
+| NON; _expr = expr { ExprCall("__non", [_expr]) }
 ;
 
 
@@ -163,7 +163,7 @@ expr_avec_prefixe:
 | _lexpr = expr_avec_prefixe; op = operateur; _rexpr = expr { ExprCall(op, [_lexpr; _rexpr]) }
 
 (* Moins : c'est lui qui demande à être géré à part pour matcher la plus grande expression après un if *)
-| MOINS; _expr = expr %prec unaire { ExprCall("@umoins", [_expr]) }
+| MOINS; _expr = expr %prec unaire { ExprCall("__umoins", [_expr]) }
 ;
 
 
@@ -198,19 +198,19 @@ else_bloc:
 
 
 %inline operateur:
-| PLUS { "@plus" }
-| MOINS { "@moins" }
-| FOIS { "@fois" }
-| MOD { "@div" }
-| EGAL { "@egal" }
-| DIFF { "@diff" }
-| INF { "@inf" }
-| INFEGAL { "@infegal" }
-| SUP { "@sup" }
-| SUPEGAL { "@supegal" }
-| PUIS { "@puis" }
-| ET { "@et" }
-| OU { "@ou" }
+| PLUS { "__plus" }
+| MOINS { "__moins" }
+| FOIS { "__fois" }
+| MOD { "__div" }
+| EGAL { "__egal" }
+| DIFF { "__diff" }
+| INF { "__inf" }
+| INFEGAL { "__infegal" }
+| SUP { "__sup" }
+| SUPEGAL { "__supegal" }
+| PUIS { "__puis" }
+| ET { "__et" }
+| OU { "__ou" }
 ;
 
 
