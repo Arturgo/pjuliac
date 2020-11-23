@@ -29,4 +29,4 @@ with
 (buf.lex_start_p.pos_cnum - buf.lex_start_p.pos_bol)
 (buf.lex_curr_p.pos_cnum - buf.lex_curr_p.pos_bol); exit 1*)
 
-let () = code_str "print(42 + 43 + 15);";;
+let () = code_str "function quatre_deux() print(42); end; quatre_deux();";;
