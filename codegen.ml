@@ -59,25 +59,23 @@ let new_label () =
 (* Utilitaires *)
 let get_int addr reg =
    movq addr !%r8
-   (* TODO : Check du type *)
    ++ movq (ind r8 ~ofs:(8)) reg
 
 let get_bool addr reg =
    movq addr !%r8
-   (* TODO : Check du type *)
    ++ movq (ind r8 ~ofs:(8)) reg
    
 let set_int code =
-   movq !%r15 !%rax
+   subq (imm 16) !%r15
    ++ movq (imm 1) (ind r15 ~ofs:(0))
    ++ movq code (ind r15 ~ofs:(8))
-   ++ addq (imm 16) !%r15
+   ++ movq !%r15 !%rax
 
 let set_bool code =
-   movq !%r15 !%rax
+   subq (imm 16) !%r15
    ++ movq (imm 2) (ind r15 ~ofs:(0))
    ++ movq code (ind r15 ~ofs:(8))
-   ++ addq (imm 16) !%r15
+   ++ movq !%r15 !%rax
 
 let rec code_expr local_vars = function
 | ExprCst(cst) -> (
@@ -254,10 +252,19 @@ let code_fichier f =
    { text= 
    globl "main"
    ++ label "main"
-   ++ leaq (lab "tas") r15
+   ++ pushq !%rbp
+   ++ movq !%rsp !%rbp
+   
+   ++ movq !%rsp !%r15
+   (* Maximum heap size *)
+   ++ subq (imm 1048576) !%rsp
    ++ loop_exprs f
    ++ movq (imm 0) !%rax
+   
+   ++ movq !%rbp !%rsp
+   ++ popq rbp
    ++ ret
+   
    ++ library ()
    ++ loop_decls f
    ++ loop_decls (parse_str standard_library)
@@ -265,6 +272,5 @@ let code_fichier f =
    ++ label "string_format" ++ string "%s"
    ++ label "true" ++ string "true"
    ++ label "false" ++ string "false"
-   ++ label "tas" ++ dquad []
    }
 
