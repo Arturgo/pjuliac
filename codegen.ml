@@ -3,6 +3,8 @@ open X86_64
 open Parser
 open Lexing
 
+(* TODO : urgent, corrgier le segfault lorsque le tas est trop gros *)
+
 module Smap = Map.Make(String)
 
 let parse buf = 
@@ -14,10 +16,6 @@ let parse_str str =
    parse buf
 
 let standard_library = "
-function print(x)
-   print_int(x)
-end
-
 function __non(x)
    if x
       return false
@@ -25,10 +23,26 @@ function __non(x)
       return true
    end
 end
+
+function __egal(x, y)
+   return !(x - y)
+end
+
+function __diff(x, y)
+   return !(x == y)
+end
+
+function print(x)
+   if typeof(x) == 1
+      __print_int(x)
+   elseif typeof(x) == 2
+      __print_bool(x)
+   end
+end
 "
 
 (*
-Types : 0 : nothing, 1 : int, 2 : bool
+Types : 0 : nothing, 1 : int, 2 : bool, 3 : string
 Registes : r15 : tas, 
    r14 : argument des fonctions variadiques
    rax : valeur de retour
@@ -96,12 +110,26 @@ let rec code_expr local_vars = function
    ++ code_expr local_vars false_bloc
    ++ label label_true
 )
+| ExprWhile(condition, bloc) -> (
+   let label_condition = new_label () in
+   let label_debut = new_label () in
+   
+   jmp label_condition
+   ++ label label_debut
+   ++ code_expr local_vars bloc
+   ++ label label_condition
+   ++ code_expr local_vars condition
+   ++ get_bool !%rax !%rbx
+   ++ testq !%rbx !%rbx
+   ++ jnz label_debut
+)
 | ExprReturn(expr_option) ->
    (match expr_option with
       | Some expr -> (code_expr local_vars expr)
       | None -> nop
    )
    ++ movq !%rbp !%rsp
+   ++ popq rbp
    ++ ret
 | _ -> nop
 
@@ -116,14 +144,14 @@ let library () =
    (* Print functions *)
    
    (* TODO : Gérer l'alignement des printf *)
-   ++ label "print_int"
+   ++ label "__print_int"
    ++ movq (ilab "int_format") !%rdi
    ++ get_int (ind rsp ~ofs:(8)) !%rsi
    ++ xorq !%rax !%rax
    ++ call "printf"
    ++ ret
    
-   ++ label "print_bool"
+   ++ label "__print_bool"
    ++ movq (ilab "string_format") !%rdi
    ++ get_bool (ind rsp ~ofs:(8)) !%rbx
    ++ movq (ilab "false") !%rsi
@@ -187,11 +215,6 @@ let library () =
    ++ orq !%rbx !%rcx
    ++ set_bool !%rcx
    ++ ret
-   
-   ++ label "__bool_of_int"
-   ++ get_int (ind rsp ~ofs:(8)) !%rbx
-   ++ set_bool !%rbx
-   ++ ret
 
 let code_fichier f =
    let rec loop_exprs = function
@@ -206,9 +229,8 @@ let code_fichier f =
    | [] -> nop
    | x :: r -> (match x with
       | DeclFonction(nom, args, t, body) -> (
-      (* TODO : gérer la portée, les variables locales, les types, ... *)
          let local_vars = ref Smap.empty in
-         let var_id = ref 0 in
+         let var_id = ref 8 in
          
          List.iter (fun arg -> 
             (var_id := !var_id + 8;
@@ -216,8 +238,13 @@ let code_fichier f =
          ) (List.rev args);
          
          label nom
+         ++ pushq !%rbp
          ++ movq !%rsp !%rbp
+         
          ++ code_expr !local_vars body
+         
+         ++ movq !%rbp !%rsp
+         ++ popq rbp
          ++ ret
       )
       | _ -> nop

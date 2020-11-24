@@ -18,4 +18,13 @@ with
 (buf.lex_start_p.pos_cnum - buf.lex_start_p.pos_bol)
 (buf.lex_curr_p.pos_cnum - buf.lex_curr_p.pos_bol); exit 1*)
 
-let () = code_str "print_bool(!true)";;
+let () = code_str "
+function x(n)
+   if n != 0
+      print(n)
+      x(n - 1)
+   end
+end
+
+x(10)
+";;
