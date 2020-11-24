@@ -28,6 +28,10 @@ function __egal(x, y)
    return !(x - y)
 end
 
+function __copy(x)
+   return __copy_singleton(x)
+end
+
 function __diff(x, y)
    return !(x == y)
 end
@@ -83,8 +87,18 @@ let rec code_expr local_vars = function
    | CInt(v) -> set_int (imm64 v)
    | CBool(b) -> if b then set_bool (imm 1) else set_bool (imm 0)
 )
-| ExprAssignement(LvalueVar(name), expr) ->
-   Smap.find name local_vars
+| ExprAssignement(LvalueVar(name), value) ->
+   let position = Smap.find name local_vars in (
+   match value with
+   | None -> movq position !%rax
+   | Some expr -> (
+      code_expr local_vars expr
+      ++ pushq !%rax
+      ++ call "__copy"
+      ++ addq (imm 8) !%rsp
+      ++ movq !%rax position
+   )   
+)
 | ExprCall(name, args) -> 
    List.fold_left (++) nop (List.map 
       (fun expr -> (code_expr local_vars expr) ++ (pushq !%rax))
@@ -161,6 +175,18 @@ let library () =
    ++ call "printf"
    ++ ret
    
+   (* Copy functions *)
+   
+   ++ label "__copy_singleton"
+   ++ movq (ind rsp ~ofs:(8)) !%r8
+   ++ movq (ind r8 ~ofs:(0)) !%rbx
+   ++ movq (ind r8 ~ofs:(8)) !%rcx
+   ++ subq (imm 16) !%r15
+   ++ movq !%rbx (ind r15 ~ofs:(0))
+   ++ movq !%rcx (ind r15 ~ofs:(8))
+   ++ movq !%r15 !%rax
+   ++ ret
+   
    (* Operators *)
    ++ label "__plus"
    ++ get_int (ind rsp ~ofs:(8)) !%rbx
@@ -232,7 +258,7 @@ let code_fichier f =
          
          List.iter (fun arg -> 
             (var_id := !var_id + 8;
-            local_vars := Smap.add (fst arg) (movq (ind rbp ~ofs:(!var_id)) !%rax) !local_vars)
+            local_vars := Smap.add (fst arg) (ind rbp ~ofs:(!var_id)) !local_vars)
          ) (List.rev args);
          
          label nom

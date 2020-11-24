@@ -20,13 +20,11 @@ with
 
 let () = code_str "
 function x(n)
-   if n == 0
-      print(0)
-   else
+   while n != 0
       print(n)
-      x(n - 1)
+      n = n - 1
    end
 end
 
-x(1000)
+x(10)
 ";;
