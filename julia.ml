@@ -29,4 +29,4 @@ with
 (buf.lex_start_p.pos_cnum - buf.lex_start_p.pos_bol)
 (buf.lex_curr_p.pos_cnum - buf.lex_curr_p.pos_bol); exit 1*)
 
-let () = code_str "print_bool(true && true); print_bool(true && false); print_bool(false && false); print_int(40 + 50 - 10);";;
+let () = code_str "function test(x) print_int(x); end; test(42); test(43);";;

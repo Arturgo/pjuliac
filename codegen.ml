@@ -1,12 +1,20 @@
 open Ast
 open X86_64
 
+module Smap = Map.Make(String)
+
 (*
 Types : 0 : nothing, 1 : int, 2 : bool
 Registes : r15 : tas, 
    r14 : argument des fonctions variadiques
    rax : valeur de retour
    <= r12 : réservé pour les utilitaires *)
+
+let label_id = ref 0
+
+let new_label () =
+   label_id := 1 + !label_id;
+   "__lbl_" ^ (string_of_int !label_id)
 
 (* Utilitaires *)
 let get_int addr reg =
@@ -31,28 +39,51 @@ let set_bool code =
    ++ movq code (ind r15 ~ofs:(8))
    ++ addq (imm 16) !%r15
 
-let rec code_expr = function
+let rec code_expr local_vars = function
 | ExprCst(cst) -> (
    match cst with
    | CInt(v) -> set_int (imm64 v)
    | CBool(b) -> if b then set_bool (imm 1) else set_bool (imm 0)
 )
+| ExprAssignement(LvalueVar(name), expr) ->
+   Smap.find name local_vars
 | ExprCall(name, args) -> 
    List.fold_left (++) nop (List.map 
-      (fun expr -> (code_expr expr) ++ (pushq !%rax))
+      (fun expr -> (code_expr local_vars expr) ++ (pushq !%rax))
    args)
    ++ movq (imm (List.length args)) !%r14
    ++ call name
    ++ addq (imm (8 * List.length args)) !%rsp
 | ExprListe(liste) -> 
-   List.fold_left (++) nop (List.map code_expr liste)
+   List.fold_left (++) nop (List.map (fun expr -> code_expr local_vars expr) liste)
+| ExprIfElse(select, true_bloc, false_bloc) -> (
+   let label_false = new_label () in
+   let label_true = new_label() in
+   
+   code_expr local_vars select
+   ++ get_bool !%rax !%rbx
+   ++ testq !%rbx !%rbx
+   ++ jz label_false
+   ++ code_expr local_vars true_bloc
+   ++ jmp label_true
+   ++ label label_false
+   ++ code_expr local_vars false_bloc
+   ++ label label_true
+)
 | _ -> nop
 
 let library () =
+   (* Typeof function *)
+   label "typeof"
+   ++ movq (ind rsp ~ofs:(8)) !%r8
+   ++ movq (ind r8 ~ofs:(0)) !%rbx
+   ++ set_int !%rbx
+   ++ ret
+
    (* Print functions *)
    
    (* TODO : Gérer l'alignement des printf *)
-   label "print_int"
+   ++ label "print_int"
    ++ movq (ilab "int_format") !%rdi
    ++ get_int (ind rsp ~ofs:(8)) !%rsi
    ++ xorq !%rax !%rax
@@ -128,7 +159,7 @@ let code_fichier f =
    let rec loop_exprs = function
    | [] -> nop
    | x :: r -> (match x with
-      | DeclExpr(expr) -> code_expr expr
+      | DeclExpr(expr) -> code_expr (Smap.empty) expr
       | _ -> nop
    ) ++ loop_exprs r
    in
@@ -136,11 +167,21 @@ let code_fichier f =
    let rec loop_decls = function
    | [] -> nop
    | x :: r -> (match x with
-      | DeclFonction(nom, args, t, body) -> 
+      | DeclFonction(nom, args, t, body) -> (
       (* TODO : gérer la portée, les variables locales, les types, ... *)
+         let local_vars = ref Smap.empty in
+         let var_id = ref 0 in
+         
+         List.iter (fun arg -> 
+            (var_id := !var_id + 8;
+            local_vars := Smap.add (fst arg) (movq (ind rbp ~ofs:(!var_id)) !%rax) !local_vars)
+         ) (List.rev args);
+         
          label nom
-         ++ code_expr body
+         ++ movq !%rsp !%rbp
+         ++ code_expr !local_vars body
          ++ ret
+      )
       | _ -> nop
    ) ++ loop_decls r
    in
