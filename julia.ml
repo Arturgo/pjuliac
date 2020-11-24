@@ -1,17 +1,6 @@
-open Parser
 open Format
-open Lexing
 open Codegen
 open X86_64
-
-let parse buf = 
-   let ast = Parser.fichier Lexer.token buf in
-   ast;;
-
-
-let parse_str str = 
-   let buf = Lexing.from_string str in
-   parse buf
 
 let code_str str =
    let p = code_fichier (parse_str str) in
@@ -29,4 +18,4 @@ with
 (buf.lex_start_p.pos_cnum - buf.lex_start_p.pos_bol)
 (buf.lex_curr_p.pos_cnum - buf.lex_curr_p.pos_bol); exit 1*)
 
-let () = code_str "function test(x) print_int(x); end; test(42); test(43);";;
+let () = code_str "print_bool(!true)";;

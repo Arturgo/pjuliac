@@ -1,7 +1,31 @@
 open Ast
 open X86_64
+open Parser
+open Lexing
 
 module Smap = Map.Make(String)
+
+let parse buf = 
+   let ast = Parser.fichier Lexer.token buf in
+   ast;;
+
+let parse_str str = 
+   let buf = Lexing.from_string str in
+   parse buf
+
+let standard_library = "
+function print(x)
+   print_int(x)
+end
+
+function __non(x)
+   if x
+      return false
+   else
+      return true
+   end
+end
+"
 
 (*
 Types : 0 : nothing, 1 : int, 2 : bool
@@ -9,6 +33,8 @@ Registes : r15 : tas,
    r14 : argument des fonctions variadiques
    rax : valeur de retour
    <= r12 : réservé pour les utilitaires *)
+
+(* TODO : Générer les copies et les == pour chaque structure *)
 
 let label_id = ref 0
 
@@ -70,6 +96,13 @@ let rec code_expr local_vars = function
    ++ code_expr local_vars false_bloc
    ++ label label_true
 )
+| ExprReturn(expr_option) ->
+   (match expr_option with
+      | Some expr -> (code_expr local_vars expr)
+      | None -> nop
+   )
+   ++ movq !%rbp !%rsp
+   ++ ret
 | _ -> nop
 
 let library () =
@@ -154,6 +187,11 @@ let library () =
    ++ orq !%rbx !%rcx
    ++ set_bool !%rcx
    ++ ret
+   
+   ++ label "__bool_of_int"
+   ++ get_int (ind rsp ~ofs:(8)) !%rbx
+   ++ set_bool !%rbx
+   ++ ret
 
 let code_fichier f =
    let rec loop_exprs = function
@@ -194,8 +232,9 @@ let code_fichier f =
    ++ movq (imm 0) !%rax
    ++ ret
    ++ library ()
-   ++ loop_decls f;
-   data= label "int_format" ++ string "%d"
+   ++ loop_decls f
+   ++ loop_decls (parse_str standard_library)
+   ; data= label "int_format" ++ string "%d"
    ++ label "string_format" ++ string "%s"
    ++ label "true" ++ string "true"
    ++ label "false" ++ string "false"
