@@ -2,6 +2,7 @@ open Ast
 open X86_64
 open Parser
 open Lexing
+open Format
 
 (* TODO : urgent, corrgier le segfault lorsque le tas est trop gros *)
 
@@ -48,7 +49,8 @@ end
 (*
 Types : 0 : nothing, 1 : int, 2 : bool, 3 : string
 Registes : r15 : tas, 
-   r14 : argument des fonctions variadiques
+   r14 : variables globales
+   r13 : argument des fonctions variadiques
    rax : valeur de retour
    <= r12 : réservé pour les utilitaires *)
 
@@ -81,45 +83,77 @@ let set_bool code =
    ++ movq code (ind r15 ~ofs:(8))
    ++ movq !%r15 !%rax
 
-let rec code_expr local_vars = function
+let globals = ref Smap.empty
+
+type pos_t = [ `Q ] X86_64.operand
+type var_manager =
+| Global
+| Local of (pos_t Smap.t) * (pos_t Smap.t)
+
+let rec code_expr vars = function
 | ExprCst(cst) -> (
    match cst with
    | CInt(v) -> set_int (imm64 v)
    | CBool(b) -> if b then set_bool (imm 1) else set_bool (imm 0)
 )
 | ExprAssignement(LvalueVar(name), value) ->
-   let position = Smap.find name local_vars in (
+begin
+   let position = (match !vars with
+   | Global -> 
+      if (Smap.mem name !globals) then
+         Smap.find name !globals
+      else (
+         globals := Smap.add name (ind r14 ~ofs:(-8 * (1 + Smap.cardinal !globals))) !globals;
+         Smap.find name !globals
+      )
+   | Local(args, locals) ->
+      if (Smap.mem name args)  then
+         Smap.find name args
+      else if (Smap.mem name locals) then
+         Smap.find name locals
+      else if value = None && Smap.mem name !globals then
+         Smap.find name !globals
+      else (
+         let nouv_pos = (ind rbp ~ofs:(-8 * (1 + Smap.cardinal locals))) in
+         vars := (Local(args, Smap.add name nouv_pos locals));
+         nouv_pos
+      )
+   ) in
+   
    match value with
    | None -> movq position !%rax
    | Some expr -> (
-      code_expr local_vars expr
+      code_expr vars expr
       ++ pushq !%rax
       ++ call "__copy"
       ++ addq (imm 8) !%rsp
       ++ movq !%rax position
-   )   
-)
+   )
+end
 | ExprCall(name, args) -> 
    List.fold_left (++) nop (List.map 
-      (fun expr -> (code_expr local_vars expr) ++ (pushq !%rax))
+      (fun expr -> (code_expr vars expr) ++ (pushq !%rax))
    args)
-   ++ movq (imm (List.length args)) !%r14
+   ++ movq (imm (List.length args)) !%r13
    ++ call name
    ++ addq (imm (8 * List.length args)) !%rsp
 | ExprListe(liste) -> 
-   List.fold_left (++) nop (List.map (fun expr -> code_expr local_vars expr) liste)
+   let rec loop = function
+   | [] -> nop
+   | x :: r -> let code = code_expr vars x in code ++ loop r
+   in loop liste
 | ExprIfElse(select, true_bloc, false_bloc) -> (
    let label_false = new_label () in
    let label_true = new_label() in
    
-   code_expr local_vars select
+   code_expr vars select
    ++ get_bool !%rax !%rbx
    ++ testq !%rbx !%rbx
    ++ jz label_false
-   ++ code_expr local_vars true_bloc
+   ++ code_expr vars true_bloc
    ++ jmp label_true
    ++ label label_false
-   ++ code_expr local_vars false_bloc
+   ++ code_expr vars false_bloc
    ++ label label_true
 )
 | ExprWhile(condition, bloc) -> (
@@ -128,16 +162,16 @@ let rec code_expr local_vars = function
    
    jmp label_condition
    ++ label label_debut
-   ++ code_expr local_vars bloc
+   ++ code_expr vars bloc
    ++ label label_condition
-   ++ code_expr local_vars condition
+   ++ code_expr vars condition
    ++ get_bool !%rax !%rbx
    ++ testq !%rbx !%rbx
    ++ jnz label_debut
 )
 | ExprReturn(expr_option) ->
    (match expr_option with
-      | Some expr -> (code_expr local_vars expr)
+      | Some expr -> (code_expr vars expr)
       | None -> nop
    )
    ++ movq !%rbp !%rsp
@@ -243,29 +277,39 @@ let library () =
 let code_fichier f =
    let rec loop_exprs = function
    | [] -> nop
-   | x :: r -> (match x with
-      | DeclExpr(expr) -> code_expr (Smap.empty) expr
+   | x :: r -> let code = (match x with
+      | DeclExpr(expr) -> code_expr (ref Global) expr
       | _ -> nop
-   ) ++ loop_exprs r
+   ) in code ++ loop_exprs r
    in
    
    let rec loop_decls = function
    | [] -> nop
    | x :: r -> (match x with
       | DeclFonction(nom, args, t, body) -> (
-         let local_vars = ref Smap.empty in
+         let args_p = ref Smap.empty in
          let var_id = ref 8 in
          
          List.iter (fun arg -> 
             (var_id := !var_id + 8;
-            local_vars := Smap.add (fst arg) (ind rbp ~ofs:(!var_id)) !local_vars)
+            args_p := Smap.add (fst arg) (ind rbp ~ofs:(!var_id)) !args_p)
          ) (List.rev args);
+         
+         
+         let local_vars = ref (Local(!args_p, Smap.empty)) in
+         let code_fonction = code_expr local_vars body in
+         
+         let nb_vars = (match !local_vars with
+         | Global -> 0
+         | Local(args, vars) -> Smap.cardinal vars
+         ) in
          
          label nom
          ++ pushq !%rbp
          ++ movq !%rsp !%rbp
          
-         ++ code_expr !local_vars body
+         ++ subq (imm (8 * nb_vars)) !%rsp
+         ++ code_fonction
          
          ++ movq !%rbp !%rsp
          ++ popq rbp
@@ -274,6 +318,11 @@ let code_fichier f =
       | _ -> nop
    ) ++ loop_decls r
    in
+   
+   let code_exprs = loop_exprs f in
+   
+   let code_decls = loop_decls f
+   ++ loop_decls (parse_str standard_library) in   
    
    { text= 
    globl "main"
@@ -284,7 +333,10 @@ let code_fichier f =
    ++ movq !%rsp !%r15
    (* Maximum heap size *)
    ++ subq (imm 1048576) !%rsp
-   ++ loop_exprs f
+   (* Début des variables globales *)
+   ++ movq !%rsp !%r14
+   ++ subq (imm (8 * (Smap.cardinal !globals))) !%rsp
+   ++ code_exprs
    ++ movq (imm 0) !%rax
    
    ++ movq !%rbp !%rsp
@@ -292,8 +344,8 @@ let code_fichier f =
    ++ ret
    
    ++ library ()
-   ++ loop_decls f
-   ++ loop_decls (parse_str standard_library)
+   ++ code_decls
+   
    ; data= label "int_format" ++ string "%d"
    ++ label "string_format" ++ string "%s"
    ++ label "true" ++ string "true"

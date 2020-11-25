@@ -19,12 +19,16 @@ with
 (buf.lex_curr_p.pos_cnum - buf.lex_curr_p.pos_bol); exit 1*)
 
 let () = code_str "
-function x(n)
-   while n != 0
-      print(n)
-      n = n - 1
-   end
+m = 42
+function x()
+   print(m)
+   
+   m = 43
+   
+   print(m)
 end
 
-x(10)
+print(m)
+x()
+print(m)
 ";;
