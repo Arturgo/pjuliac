@@ -73,6 +73,13 @@ function print()
       __print(__deref(__args_p + 8 * i))
    end
 end
+
+function println()
+   for i = 0 : __nb_args - 1
+      __print(__deref(__args_p + 8 * i))
+   end
+   __print_string(\"\\n\")
+end
 "
 
 (*

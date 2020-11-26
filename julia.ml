@@ -19,5 +19,5 @@ with
 (buf.lex_curr_p.pos_cnum - buf.lex_curr_p.pos_bol); exit 1*)
 
 let () = code_str "
-print(42, 13, true, \"Yes\\n\")
+println(42)
 ";;
