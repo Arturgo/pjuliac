@@ -42,11 +42,11 @@ function __sup(x, y)
    return y < x
 end
 
-function __inf_egal(x, y)
+function __infegal(x, y)
    return !(x > y)
 end
 
-function __sup_egal(x, y)
+function __supegal(x, y)
    return !(x < y)
 end
 
@@ -222,14 +222,15 @@ end
 | ExprFor(var, deb, fin, bloc) ->
    (* TODO : faire les bonnes scopes des variables *)
    let i = ExprAssignement(LvalueVar(var), None) in
-   code_expr vars (ExprAssignement(LvalueVar(var), Some deb))
-   ++ code_expr vars (ExprAssignement(LvalueVar("__" ^ var ^ "_fin"), Some fin))
-   ++ code_expr vars (ExprWhile(ExprCall("__inf_egal", [
+   code_expr vars (ExprListe([
+      ExprAssignement(LvalueVar(var), Some deb);
+      ExprAssignement(LvalueVar("__" ^ var ^ "_fin"), Some fin);
+      ExprWhile(ExprCall("__infegal", [
       i;
       ExprAssignement(LvalueVar("__" ^ var ^ "_fin"), None)
    ]), ExprListe([bloc;
       ExprAssignement(LvalueVar(var), Some (ExprCall("__plus", [i; ExprCst(CInt (Int64.of_int 1))])))
-   ])))
+   ]))]))
 | ExprReturn(expr_option) ->
    (match expr_option with
       | Some expr -> (code_expr vars expr)
@@ -418,7 +419,7 @@ let code_fichier f =
    
    ++ movq !%rsp !%r15
    (* Maximum heap size *)
-   ++ subq (imm 1048576) !%rsp
+   ++ subq (imm 524288) !%rsp
    (* Début des variables globales *)
    ++ movq !%rsp !%r14
    ++ subq (imm (8 * (Smap.cardinal !globals))) !%rsp

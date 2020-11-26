@@ -6,6 +6,7 @@ cp *.mly _build/
 cp *.mll _build/
 cp *.ml _build/
 cp *.mli _build/
+cp *.jl _build/
 
 cd _build
 
@@ -39,6 +40,6 @@ ocamlopt -o pjuliac ast.cmx lexer.cmx parser.cmx typeur.cmx x86_64.cmx codegen.c
 
 cp pjuliac ../pjuliac
 
-./pjuliac > test.s
+./pjuliac test.jl > test.s
 
 g++ -o test test.s -no-pie
