@@ -37,6 +37,18 @@ function __diff(x, y)
    return !(x == y)
 end
 
+function __sup(x, y)
+   return y < x
+end
+
+function __inf_egal(x, y)
+   return !(x > y)
+end
+
+function __sup_egal(x, y)
+   return !(x < y)
+end
+
 function print(x)
    if typeof(x) == 1
       __print_int(x)
@@ -169,6 +181,17 @@ end
    ++ testq !%rbx !%rbx
    ++ jnz label_debut
 )
+| ExprFor(var, deb, fin, bloc) ->
+   (* TODO : faire les bonnes scopes des variables *)
+   let i = ExprAssignement(LvalueVar(var), None) in
+   code_expr vars (ExprAssignement(LvalueVar(var), Some deb))
+   ++ code_expr vars (ExprAssignement(LvalueVar("__" ^ var ^ "_fin"), Some fin))
+   ++ code_expr vars (ExprWhile(ExprCall("__inf_egal", [
+      i;
+      ExprAssignement(LvalueVar("__" ^ var ^ "_fin"), None)
+   ]), ExprListe([bloc;
+      ExprAssignement(LvalueVar(var), Some (ExprCall("__plus", [i; ExprCst(CInt (Int64.of_int 1))])))
+   ])))
 | ExprReturn(expr_option) ->
    (match expr_option with
       | Some expr -> (code_expr vars expr)
@@ -274,6 +297,17 @@ let library () =
    ++ set_bool !%rcx
    ++ ret
 
+   ++ label "__inf"
+   ++ get_int (ind rsp ~ofs:(8)) !%rbx
+   ++ get_int (ind rsp ~ofs:(16)) !%rcx
+   ++ cmpq !%rbx !%rcx
+   ++ jl "__inf_true"
+   ++ set_bool (imm 0)
+   ++ ret
+   ++ label "__inf_true"
+   ++ set_bool (imm 1)
+   ++ ret
+   
 let code_fichier f =
    let rec loop_exprs = function
    | [] -> nop

@@ -19,16 +19,7 @@ with
 (buf.lex_curr_p.pos_cnum - buf.lex_curr_p.pos_bol); exit 1*)
 
 let () = code_str "
-m = 42
-function x()
-   print(m)
-   
-   m = 43
-   
-   print(m)
+for x = 1 : 5
+   print(x)
 end
-
-print(m)
-x()
-print(m)
 ";;
