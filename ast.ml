@@ -31,11 +31,11 @@ type typeEl = Any|Nothing|Int64|Bool|String|S
 
 and exprTyp =
 | ExprCstTyp of cst * typeEl
-| ExprCallTyp of string * expr list * typeEl
-| ExprListeTyp of expr list * typeEl
-| ExprAssignementTyp of lvalue * expr option * typeEl
-| ExprReturnTyp of expr option * typeEl
-| ExprIfElseTyp of expr * expr * expr * typeEl
-| ExprForTyp of string * expr * expr * expr * typeEl
-| ExprWhileTyp of expr * expr * typeEl
+| ExprCallTyp of string * exprTyp list * typeEl
+| ExprListeTyp of exprTyp list * typeEl
+| ExprAssignementTyp of lvalue * exprTyp option * typeEl
+| ExprReturnTyp of exprTyp option * typeEl
+| ExprIfElseTyp of exprTyp * exprTyp * exprTyp * typeEl
+| ExprForTyp of string * exprTyp * exprTyp * exprTyp * typeEl
+| ExprWhileTyp of exprTyp * exprTyp * typeEl
 
