@@ -2,6 +2,7 @@ open Ast
 open X86_64
 open Parser
 open Lexing
+open Scanf
 open Format
 
 (* TODO : urgent, corrgier le segfault lorsque le tas est trop gros *)
@@ -49,11 +50,27 @@ function __sup_egal(x, y)
    return !(x < y)
 end
 
-function print(x)
+function __print_bool(x)
+   if x
+      __print_string(\"true\")
+   else
+      __print_string(\"false\")
+   end
+end
+
+function __print(x)
    if typeof(x) == 1
       __print_int(x)
    elseif typeof(x) == 2
       __print_bool(x)
+   elseif typeof(x) == 3
+      __print_string(x)
+   end
+end
+
+function print()
+   for i = 0 : __nb_args - 1
+      __print(__deref(__args_p + 8 * i))
    end
 end
 "
@@ -97,6 +114,9 @@ let set_bool code =
 
 let globals = ref Smap.empty
 
+let iString = ref 0
+let strings = ref nop
+
 type pos_t = [ `Q ] X86_64.operand
 type var_manager =
 | Global
@@ -107,6 +127,16 @@ let rec code_expr vars = function
    match cst with
    | CInt(v) -> set_int (imm64 v)
    | CBool(b) -> if b then set_bool (imm 1) else set_bool (imm 0)
+   | CString(s) -> (
+      let label_name = "__string_" ^ string_of_int !iString in
+      iString := !iString + 1;
+      strings := !strings ++
+      label label_name
+      ++ dquad [3; String.length s]
+      ++ string (Scanf.unescaped s)
+      ;
+      movq (ilab label_name) !%rax
+   )
 )
 | ExprAssignement(LvalueVar(name), value) ->
 begin
@@ -132,7 +162,7 @@ begin
       )
    ) in
    
-   match value with
+   (match value with
    | None -> movq position !%rax
    | Some expr -> (
       code_expr vars expr
@@ -141,11 +171,12 @@ begin
       ++ addq (imm 8) !%rsp
       ++ movq !%rax position
    )
+   )
 end
 | ExprCall(name, args) -> 
    List.fold_left (++) nop (List.map 
       (fun expr -> (code_expr vars expr) ++ (pushq !%rax))
-   args)
+   (List.rev args))
    ++ movq (imm (List.length args)) !%r13
    ++ call name
    ++ addq (imm (8 * List.length args)) !%rsp
@@ -209,6 +240,13 @@ let library () =
    ++ movq (ind r8 ~ofs:(0)) !%rbx
    ++ set_int !%rbx
    ++ ret
+   
+   (* Dereferencing pointers *)
+   ++ label "__deref"
+   ++ movq (ind rsp ~ofs:(8)) !%rax
+   ++ get_int !%rax !%rbx
+   ++ movq (ind rbx ~ofs:(0)) !%rax
+   ++ ret
 
    (* Print functions *)
    
@@ -220,14 +258,10 @@ let library () =
    ++ call "printf"
    ++ ret
    
-   ++ label "__print_bool"
+   ++ label "__print_string"
    ++ movq (ilab "string_format") !%rdi
-   ++ get_bool (ind rsp ~ofs:(8)) !%rbx
-   ++ movq (ilab "false") !%rsi
-   ++ testq !%rbx !%rbx
-   ++ jz "__print_bool_false"
-   ++ movq (ilab "true") !%rsi
-   ++ label "__print_bool_false"
+   ++ movq (ind rsp ~ofs:(8)) !%r8
+   ++ leaq (ind r8 ~ofs:(16)) rsi
    ++ xorq !%rax !%rax
    ++ call "printf"
    ++ ret
@@ -253,22 +287,22 @@ let library () =
    ++ ret
    
    ++ label "__moins"
-   ++ get_int (ind rsp ~ofs:(8)) !%rbx
-   ++ get_int (ind rsp ~ofs:(16)) !%rcx
+   ++ get_int (ind rsp ~ofs:(8)) !%rcx
+   ++ get_int (ind rsp ~ofs:(16)) !%rbx
    ++ subq !%rbx !%rcx
    ++ set_int !%rcx
    ++ ret
    
    ++ label "__fois"
-   ++ get_int (ind rsp ~ofs:(8)) !%rbx
-   ++ get_int (ind rsp ~ofs:(16)) !%rcx
+   ++ get_int (ind rsp ~ofs:(8)) !%rcx
+   ++ get_int (ind rsp ~ofs:(16)) !%rbx
    ++ imulq !%rbx !%rcx
    ++ set_int !%rcx
    ++ ret
    
    ++ label "div"
-   ++ get_int (ind rsp ~ofs:(8)) !%r9
-   ++ get_int (ind rsp ~ofs:(16)) !%rax
+   ++ get_int (ind rsp ~ofs:(8)) !%rax
+   ++ get_int (ind rsp ~ofs:(16)) !%r9
    ++ movq (imm 0) !%rdx
    ++ idivq !%r9
    ++ movq !%rax !%rbx
@@ -276,8 +310,8 @@ let library () =
    ++ ret
    
    ++ label "mod"
-   ++ get_int (ind rsp ~ofs:(8)) !%r9
-   ++ get_int (ind rsp ~ofs:(16)) !%rax
+   ++ get_int (ind rsp ~ofs:(8)) !%rax
+   ++ get_int (ind rsp ~ofs:(16)) !%r9
    ++ movq (imm 0) !%rdx
    ++ idivq !%r9
    ++ set_int !%rdx
@@ -298,8 +332,8 @@ let library () =
    ++ ret
 
    ++ label "__inf"
-   ++ get_int (ind rsp ~ofs:(8)) !%rbx
-   ++ get_int (ind rsp ~ofs:(16)) !%rcx
+   ++ get_int (ind rsp ~ofs:(8)) !%rcx
+   ++ get_int (ind rsp ~ofs:(16)) !%rbx
    ++ cmpq !%rbx !%rcx
    ++ jl "__inf_true"
    ++ set_bool (imm 0)
@@ -327,10 +361,14 @@ let code_fichier f =
          List.iter (fun arg -> 
             (var_id := !var_id + 8;
             args_p := Smap.add (fst arg) (ind rbp ~ofs:(!var_id)) !args_p)
-         ) (List.rev args);
+         ) (args);
          
+         let defaults = 
+            Smap.add "__nb_args" (ind rbp ~ofs:(-16))
+            (Smap.singleton "__args_p" (ind rbp ~ofs:(-8)))
+         in
          
-         let local_vars = ref (Local(!args_p, Smap.empty)) in
+         let local_vars = ref (Local(!args_p, defaults)) in
          let code_fonction = code_expr local_vars body in
          
          let nb_vars = (match !local_vars with
@@ -341,8 +379,15 @@ let code_fichier f =
          label nom
          ++ pushq !%rbp
          ++ movq !%rsp !%rbp
-         
          ++ subq (imm (8 * nb_vars)) !%rsp
+         
+         (* Place __nb_args et __args_p *)
+         ++ set_int !%r13
+         ++ movq !%rax (ind rbp ~ofs:(-16))
+         ++ leaq (ind rbp ~ofs:(16)) rbx
+         ++ set_int !%rbx
+         ++ movq !%rax (ind rbp ~ofs:(-8))
+         
          ++ code_fonction
          
          ++ movq !%rbp !%rsp
@@ -380,9 +425,8 @@ let code_fichier f =
    ++ library ()
    ++ code_decls
    
-   ; data= label "int_format" ++ string "%d"
+   ; data= label "int_format" ++ string "%lld"
    ++ label "string_format" ++ string "%s"
-   ++ label "true" ++ string "true"
-   ++ label "false" ++ string "false"
+   ++ !strings
    }
 
