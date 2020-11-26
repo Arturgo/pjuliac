@@ -135,6 +135,9 @@ let pr_list fmt pr = function
 let pr_ilist fmt l =
   pr_list fmt (fun fmt i -> fprintf fmt "%i" i) l
 
+let pr_lilist fmt l =
+  pr_list fmt (fun fmt i -> fprintf fmt "%Li" i) l
+
 let pr_alist fmt l =
   pr_list fmt (fun fmt (a : label) -> fprintf fmt "%s" a) l
 
@@ -286,7 +289,7 @@ let align n = ins ".align %i" n
 let dbyte l = ins ".byte %a" pr_ilist l
 let dint  l = ins ".int %a" pr_ilist l
 let dword l = ins ".word %a" pr_ilist l
-let dquad l = ins ".quad %a" pr_ilist l
+let dquad l = ins ".quad %a" pr_lilist l
 let string s = ins ".string %S" s
 
 let address l = ins ".quad %a" pr_alist l

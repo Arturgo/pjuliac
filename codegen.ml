@@ -84,7 +84,7 @@ end
 
 (*
 Types : 0 : nothing, 1 : int, 2 : bool, 3 : string
-Registes : r15 : tas, 
+Registes : 
    r14 : variables globales
    r13 : argument des fonctions variadiques
    rax : valeur de retour
@@ -108,21 +108,25 @@ let get_bool addr reg =
    ++ movq (ind r8 ~ofs:(8)) reg
    
 let set_int code =
-   subq (imm 16) !%r15
-   ++ movq (imm 1) (ind r15 ~ofs:(0))
-   ++ movq code (ind r15 ~ofs:(8))
-   ++ movq !%r15 !%rax
+   movq (imm 16) !%rdi
+   ++ pushq code
+   ++ call "malloc"
+   ++ popq rdx
+   ++ movq (imm 1) (ind rax ~ofs:(0))
+   ++ movq !%rdx (ind rax ~ofs:(8))
 
 let set_bool code =
-   subq (imm 16) !%r15
-   ++ movq (imm 2) (ind r15 ~ofs:(0))
-   ++ movq code (ind r15 ~ofs:(8))
-   ++ movq !%r15 !%rax
+   movq (imm 16) !%rdi
+   ++ pushq code
+   ++ call "malloc"
+   ++ popq rdx
+   ++ movq (imm 2) (ind rax ~ofs:(0))
+   ++ movq !%rdx (ind rax ~ofs:(8))
 
 let globals = ref Smap.empty
 
-let iString = ref 0
-let strings = ref nop
+let iCst = ref 0
+let csts = ref nop
 
 type pos_t = [ `Q ] X86_64.operand
 type var_manager =
@@ -130,20 +134,22 @@ type var_manager =
 | Local of (pos_t Smap.t) * (pos_t Smap.t)
 
 let rec code_expr vars = function
-| ExprCst(cst) -> (
-   match cst with
-   | CInt(v) -> set_int (imm64 v)
-   | CBool(b) -> if b then set_bool (imm 1) else set_bool (imm 0)
-   | CString(s) -> (
-      let label_name = "__string_" ^ string_of_int !iString in
-      iString := !iString + 1;
-      strings := !strings ++
-      label label_name
-      ++ dquad [3; String.length s]
-      ++ string (Scanf.unescaped s)
-      ;
-      movq (ilab label_name) !%rax
+| ExprCst(cst) -> (let label_name = "__cst_" ^ string_of_int !iCst in
+   iCst := !iCst + 1;
+   csts := !csts ++
+   label label_name
+   ++ (match cst with
+   | CInt(v) -> (
+      dquad [Int64.of_int 1; v]
    )
+   | CBool(b) -> (
+      dquad [Int64.of_int 2; if b then Int64.of_int 1 else Int64.of_int 0]
+   )
+   | CString(s) -> (
+      dquad [Int64.of_int 3; Int64.of_int (String.length s)]
+      ++ string (Scanf.unescaped s)
+   ));
+   movq (ilab label_name) !%rax
 )
 | ExprAssignement(LvalueVar(name), value) ->
 begin
@@ -173,9 +179,6 @@ begin
    | None -> movq position !%rax
    | Some expr -> (
       code_expr vars expr
-      ++ pushq !%rax
-      ++ call "__copy"
-      ++ addq (imm 8) !%rsp
       ++ movq !%rax position
    )
    )
@@ -280,10 +283,14 @@ let library () =
    ++ movq (ind rsp ~ofs:(8)) !%r8
    ++ movq (ind r8 ~ofs:(0)) !%rbx
    ++ movq (ind r8 ~ofs:(8)) !%rcx
-   ++ subq (imm 16) !%r15
-   ++ movq !%rbx (ind r15 ~ofs:(0))
-   ++ movq !%rcx (ind r15 ~ofs:(8))
-   ++ movq !%r15 !%rax
+   ++ movq (imm 16) !%rdi
+   ++ pushq !%rbx
+   ++ pushq !%rcx
+   ++ call "malloc"
+   ++ popq rcx
+   ++ popq rbx
+   ++ movq !%rbx (ind rax ~ofs:(0))
+   ++ movq !%rcx (ind rax ~ofs:(8))
    ++ ret
    
    (* Operators *)
@@ -417,9 +424,6 @@ let code_fichier f =
    ++ pushq !%rbp
    ++ movq !%rsp !%rbp
    
-   ++ movq !%rsp !%r15
-   (* Maximum heap size *)
-   ++ subq (imm 524288) !%rsp
    (* Début des variables globales *)
    ++ movq !%rsp !%r14
    ++ subq (imm (8 * (Smap.cardinal !globals))) !%rsp
@@ -435,6 +439,6 @@ let code_fichier f =
    
    ; data= label "int_format" ++ string "%lld"
    ++ label "string_format" ++ string "%s"
-   ++ !strings
+   ++ !csts
    }
 
