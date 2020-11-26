@@ -2,9 +2,9 @@ type fichier = decl list
 
 and decl = 
 (* Nom, estMutable, paramètres *)
-| DeclStructure of string * bool * (string * string option) list
+| DeclStructure of string * bool * (string * string) list
 (* Nom, Paramètres sous la forme (arg, type), Type, et corps de la fonction *)
-| DeclFonction of string * (string * string option) list * string option * expr
+| DeclFonction of string * (string * string) list * string option * expr
 | DeclExpr of expr
 
 and cst = CInt of int64 | CString of string | CBool of bool

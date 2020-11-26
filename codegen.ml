@@ -30,10 +30,6 @@ function __egal(x, y)
    return !(x - y)
 end
 
-function __copy(x)
-   return __copy_singleton(x)
-end
-
 function __diff(x, y)
    return !(x == y)
 end
@@ -179,6 +175,7 @@ begin
    | None -> movq position !%rax
    | Some expr -> (
       code_expr vars expr
+      (* TODO : make a copy iff it's an atomic value *)
       ++ movq !%rax position
    )
    )
@@ -275,22 +272,6 @@ let library () =
    ++ leaq (ind r8 ~ofs:(16)) rsi
    ++ xorq !%rax !%rax
    ++ call "printf"
-   ++ ret
-   
-   (* Copy functions *)
-   
-   ++ label "__copy_singleton"
-   ++ movq (ind rsp ~ofs:(8)) !%r8
-   ++ movq (ind r8 ~ofs:(0)) !%rbx
-   ++ movq (ind r8 ~ofs:(8)) !%rcx
-   ++ movq (imm 16) !%rdi
-   ++ pushq !%rbx
-   ++ pushq !%rcx
-   ++ call "malloc"
-   ++ popq rcx
-   ++ popq rbx
-   ++ movq !%rbx (ind rax ~ofs:(0))
-   ++ movq !%rcx (ind rax ~ofs:(8))
    ++ ret
    
    (* Operators *)
@@ -427,11 +408,15 @@ let code_fichier f =
    (* Début des variables globales *)
    ++ movq !%rsp !%r14
    ++ subq (imm (8 * (Smap.cardinal !globals))) !%rsp
+   
+   
+   
    ++ code_exprs
-   ++ movq (imm 0) !%rax
    
    ++ movq !%rbp !%rsp
    ++ popq rbp
+   
+   ++ movq (imm 0) !%rax
    ++ ret
    
    ++ library ()
