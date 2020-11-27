@@ -167,6 +167,8 @@ val movl: [`L] operand -> [`L] operand -> text
 val movq: [`Q] operand -> [`Q] operand -> text
   (** attention : toutes les combinaisons d'opérandes ne sont pas permises *)
 
+val syscall: text
+
 val movsbw: [`B] operand -> [`W] register -> text
 val movsbl: [`B] operand -> [`L] register -> text
 val movsbq: [`B] operand -> [`Q] register -> text

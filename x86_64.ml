@@ -146,6 +146,8 @@ let movw a b = ins "movw %a, %a" a () b ()
 let movl a b = ins "movl %a, %a" a () b ()
 let movq a b = ins "movq %a, %a" a () b ()
 
+let syscall = S "\tint $0x80\n"
+
 let movabsq a b = ins "movabsq %a, %s" a () b
 
 let movsbw a b = ins "movsbw %a, %s" a () b

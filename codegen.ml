@@ -5,6 +5,7 @@ open Lexing
 open Scanf
 open Format
 
+
 (* TODO : réparer l'arithmétique pour la division entre nombres négatifs *)
 
 
@@ -103,6 +104,11 @@ function __puis(x, y)
 end
 
 function div(x, y)
+   if y == 0
+      println(\"erreur: division par zero\")
+      __exit()
+   end
+   
    if x < 0
       return -__div_pos(-x, y)
    else
@@ -111,6 +117,11 @@ function div(x, y)
 end
 
 function mod(x, y)
+   if y == 0
+      println(\"erreur: division par zero\")
+      __exit()
+   end
+   
    if x < 0
       return -__mod_pos(-x, y)
    else
@@ -377,6 +388,11 @@ let library () =
    ++ get_int !%rcx !%rcx
    ++ movq !%rcx (ind rbx ~ofs:(0))
    ++ ret
+   
+   ++ label "__fun___exit"
+   ++ movq (imm 1) !%rax
+   ++ movq (imm 1) !%rbx
+   ++ syscall
 
    (* Print functions *)
    
@@ -536,6 +552,10 @@ let code_dispatch name l =
             ^ "); end\n"
          ) l))
         ^ "
+        if __func_id == -1
+            print(\"erreur: parametres incorrects\")
+            __exit()
+        end
       end
       " in
 
