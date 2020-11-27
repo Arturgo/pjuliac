@@ -5,6 +5,16 @@ open Lexing
 open Scanf
 open Format
 
+let list_init n f =
+   let rec loop i =
+      if i = n then []
+      else (f i) :: (loop (i + 1))
+   in loop 0
+
+let rec list_count e = function 
+| [] -> 0
+| x :: r -> (if x = e then 1 else 0) + (list_count e r)
+
 let parse buf = 
    let ast = Parser.fichier Lexer.token buf in
    ast;;
@@ -64,7 +74,7 @@ function __umoins(x)
    0 - x
 end
 
-function __print_bool(x :: Bool)
+function __print_bool(x)
    if x
       __print_string(\"true\")
    else
@@ -189,12 +199,40 @@ begin
    )
 end
 | ExprCall(name, args) -> 
-   List.fold_left (++) nop (List.map 
-      (fun expr -> (code_expr vars expr) ++ (pushq !%rax))
-   (List.rev args))
-   ++ movq (imm (List.length args)) !%r13
-   ++ call name
-   ++ addq (imm (8 * List.length args)) !%rsp
+   (* Exceptions pour les évaluations paresseuses *)
+   if name = "__et" then
+      let label_sortie = new_label() in
+      let [expA; expB] = args in
+      
+      code_expr vars expA
+      ++ get_bool !%rax !%rbx
+      ++ testq !%rbx !%rbx
+      ++ jz label_sortie
+      
+      ++ code_expr vars expB
+      ++ get_bool !%rax !%rbx
+      ++ testq !%rbx !%rbx
+      ++ label label_sortie
+   else if name = "__ou" then
+      let label_sortie = new_label() in
+      let [expA; expB] = args in
+      
+      code_expr vars expA
+      ++ get_bool !%rax !%rbx
+      ++ testq !%rbx !%rbx
+      ++ jnz label_sortie
+      
+      ++ code_expr vars expB
+      ++ get_bool !%rax !%rbx
+      ++ testq !%rbx !%rbx
+      ++ label label_sortie
+   else
+      List.fold_left (++) nop (List.map 
+         (fun expr -> (code_expr vars expr) ++ (pushq !%rax))
+      (List.rev args))
+      ++ movq (imm (List.length args)) !%r13
+      ++ call name
+      ++ addq (imm (8 * List.length args)) !%rsp
 | ExprListe(liste) -> 
    let rec loop = function
    | [] -> nop
@@ -321,20 +359,6 @@ let library () =
    ++ set_int !%rdx
    ++ ret
 
-   ++ label "__et"
-   ++ get_bool (ind rsp ~ofs:(8)) !%rbx
-   ++ get_bool (ind rsp ~ofs:(16)) !%rcx
-   ++ andq !%rbx !%rcx
-   ++ set_bool !%rcx
-   ++ ret
-   
-   ++ label "__ou"
-   ++ get_bool (ind rsp ~ofs:(8)) !%rbx
-   ++ get_bool (ind rsp ~ofs:(16)) !%rcx
-   ++ orq !%rbx !%rcx
-   ++ set_bool !%rcx
-   ++ ret
-
    ++ label "__inf"
    ++ get_int (ind rsp ~ofs:(8)) !%rcx
    ++ get_int (ind rsp ~ofs:(16)) !%rbx
@@ -395,7 +419,7 @@ let rec loop_exprs = function
    code ++ loop_exprs r
    
 
-let rec loop_decls = function
+let rec loop_fcts = function
    | [] -> ()
    | x :: r -> (match x with
       | DeclFonction(nom, args, t, body) -> (
@@ -412,20 +436,59 @@ let rec loop_decls = function
       )
       | _ -> ()
    ); 
-   loop_decls r
+   loop_fcts r   
+
+let string_arg i =
+   "__deref(__args_p + " ^ (string_of_int (8 * i)) ^ ")"
+
+let jl_dispatch l =
+   let tab = Array.of_list l in
    
+   let julia = ref "" in
    
+   for i = 0 to (Array.length tab) - 1 do
+      let curFct = tab.(i) in
+      julia := !julia ^ "if (__nb_args == " ^ (string_of_int (List.length curFct.signature)) ^ " && (" ^
+      (String.concat " && " (List.mapi (fun i t ->
+         if t <> "Any" then
+            ("typeof(" ^ (string_arg i) ^ ") == " ^ t)
+         else
+            "true"
+      ) curFct.signature))
+      ^ ")) __func_id = " ^ (string_of_int i) ^ "; end\n"
+   done;
+   
+   !julia
+
 let code_dispatch name l =
    if 1 = List.length l then
       label name
       ++ (List.hd l).corps
-   else
+   else (
+      let l = List.sort (fun f1 f2 ->
+         let nb1 = list_count "Any" f1.signature in
+         let nb2 = list_count "Any" f2.signature in
+         compare nb1 nb2
+      ) l
+      in
       let corps = "
       function dispatch()
-         __print_string(\"dispatch\")
-         __print_string(\"multiple\")
+         __func_id = -1
+      " ^
+         (jl_dispatch l)
+        ^
+         (List.fold_left (^) "" (List.mapi (fun i f ->
+            "if __func_id == " ^ (string_of_int i) ^ " __func_" ^ name ^ (string_of_int i) ^ "(" ^
+            String.concat "," ( list_init (List.length f.signature) string_arg)
+            ^ "); end\n"
+         ) l))
+        ^ "
       end
       " in
+      
+      (*print_string corps;
+      
+      failwith "ok";*)
       
       let [DeclFonction(_, _, _, code)] = parse_str corps in
       
@@ -433,15 +496,21 @@ let code_dispatch name l =
       ++ (code_fct [] code)
       
       ++ (List.fold_left (++) nop (List.mapi (fun i f -> 
-         label (name ^ string_of_int i)
+         label ("__func_" ^ name ^ string_of_int i)
          ++ f.corps
       ) l))
+   )
 
 let code_fichier f =
-   let code_exprs = loop_exprs f in
+   let code_exprs = loop_exprs (parse_str "
+      Int64 = 1
+      Bool = 2
+      String = 3
+   ")
+   ++ loop_exprs f in
    
-   loop_decls f;
-   loop_decls (parse_str standard_library);
+   loop_fcts f;
+   loop_fcts (parse_str standard_library);
    
    let functions = (Smap.fold (fun name l code -> (code_dispatch name l) ++ code) !dispatchers nop) in
    
