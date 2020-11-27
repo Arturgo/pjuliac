@@ -5,10 +5,6 @@ open Lexing
 open Scanf
 open Format
 
-(* TODO : urgent, corrgier le segfault lorsque le tas est trop gros *)
-
-module Smap = Map.Make(String)
-
 let parse buf = 
    let ast = Parser.fichier Lexer.token buf in
    ast;;
@@ -17,36 +13,58 @@ let parse_str str =
    let buf = Lexing.from_string str in
    parse buf
 
+(* TODO : urgent, corrgier le segfault lorsque le tas est trop gros *)
+
+module Smap = Map.Make(String)
+
+let globals = ref Smap.empty
+
+type fct = {signature: string list; corps: [ `text ] X86_64.asm}
+
+let dispatchers = ref Smap.empty
+
+let iCst = ref 0
+let csts = ref nop
+
+type pos_t = [ `Q ] X86_64.operand
+type var_manager =
+| Global
+| Local of (pos_t Smap.t) * (pos_t Smap.t)
+
 let standard_library = "
 function __non(x)
    if x
-      return false
+      false
    else
-      return true
+      true
    end
 end
 
 function __egal(x, y)
-   return !(x - y)
+   !(x - y)
 end
 
 function __diff(x, y)
-   return !(x == y)
+   !(x == y)
 end
 
 function __sup(x, y)
-   return y < x
+   y < x
 end
 
 function __infegal(x, y)
-   return !(x > y)
+   !(x > y)
 end
 
 function __supegal(x, y)
-   return !(x < y)
+   !(x < y)
 end
 
-function __print_bool(x)
+function __umoins(x)
+   0 - x
+end
+
+function __print_bool(x :: Bool)
    if x
       __print_string(\"true\")
    else
@@ -118,16 +136,6 @@ let set_bool code =
    ++ popq rdx
    ++ movq (imm 2) (ind rax ~ofs:(0))
    ++ movq !%rdx (ind rax ~ofs:(8))
-
-let globals = ref Smap.empty
-
-let iCst = ref 0
-let csts = ref nop
-
-type pos_t = [ `Q ] X86_64.operand
-type var_manager =
-| Global
-| Local of (pos_t Smap.t) * (pos_t Smap.t)
 
 let rec code_expr vars = function
 | ExprCst(cst) -> (let label_name = "__cst_" ^ string_of_int !iCst in
@@ -337,67 +345,105 @@ let library () =
    ++ label "__inf_true"
    ++ set_bool (imm 1)
    ++ ret
+
+let code_fct args body =
+   let args_p = ref Smap.empty in
+   let var_id = ref 8 in
    
-let code_fichier f =
-   let rec loop_exprs = function
+   List.iter (fun arg -> 
+      (var_id := !var_id + 8;
+      args_p := Smap.add (fst arg) (ind rbp ~ofs:(!var_id)) !args_p)
+   ) (args);
+   
+   let defaults = 
+      Smap.add "__nb_args" (ind rbp ~ofs:(-16))
+      (Smap.singleton "__args_p" (ind rbp ~ofs:(-8)))
+   in
+   
+   let local_vars = ref (Local(!args_p, defaults)) in
+   let code_fonction = code_expr local_vars body in
+   
+   let nb_vars = (match !local_vars with
+   | Global -> 0
+   | Local(args, vars) -> Smap.cardinal vars
+   ) in
+   
+   pushq !%rbp
+   ++ movq !%rsp !%rbp
+   ++ subq (imm (8 * nb_vars)) !%rsp
+   
+   (* Place __nb_args et __args_p *)
+   ++ set_int !%r13
+   ++ movq !%rax (ind rbp ~ofs:(-16))
+   ++ leaq (ind rbp ~ofs:(16)) rbx
+   ++ set_int !%rbx
+   ++ movq !%rax (ind rbp ~ofs:(-8))
+   
+   ++ code_fonction
+   
+   ++ movq !%rbp !%rsp
+   ++ popq rbp
+   ++ ret
+   
+
+let rec loop_exprs = function
    | [] -> nop
    | x :: r -> let code = (match x with
       | DeclExpr(expr) -> code_expr (ref Global) expr
       | _ -> nop
-   ) in code ++ loop_exprs r
-   in
+   ) in 
+   code ++ loop_exprs r
    
-   let rec loop_decls = function
-   | [] -> nop
+
+let rec loop_decls = function
+   | [] -> ()
    | x :: r -> (match x with
       | DeclFonction(nom, args, t, body) -> (
-         let args_p = ref Smap.empty in
-         let var_id = ref 8 in
+         let corps = code_fct args body in
          
-         List.iter (fun arg -> 
-            (var_id := !var_id + 8;
-            args_p := Smap.add (fst arg) (ind rbp ~ofs:(!var_id)) !args_p)
-         ) (args);
-         
-         let defaults = 
-            Smap.add "__nb_args" (ind rbp ~ofs:(-16))
-            (Smap.singleton "__args_p" (ind rbp ~ofs:(-8)))
-         in
-         
-         let local_vars = ref (Local(!args_p, defaults)) in
-         let code_fonction = code_expr local_vars body in
-         
-         let nb_vars = (match !local_vars with
-         | Global -> 0
-         | Local(args, vars) -> Smap.cardinal vars
-         ) in
-         
-         label nom
-         ++ pushq !%rbp
-         ++ movq !%rsp !%rbp
-         ++ subq (imm (8 * nb_vars)) !%rsp
-         
-         (* Place __nb_args et __args_p *)
-         ++ set_int !%r13
-         ++ movq !%rax (ind rbp ~ofs:(-16))
-         ++ leaq (ind rbp ~ofs:(16)) rbx
-         ++ set_int !%rbx
-         ++ movq !%rax (ind rbp ~ofs:(-8))
-         
-         ++ code_fonction
-         
-         ++ movq !%rbp !%rsp
-         ++ popq rbp
-         ++ ret
+         dispatchers :=
+            Smap.add nom (
+               {signature = (List.map snd args); corps = corps}
+               :: (try
+                  Smap.find nom !dispatchers
+               with Not_found -> []) 
+            ) !dispatchers;
+         ()
       )
-      | _ -> nop
-   ) ++ loop_decls r
-   in
+      | _ -> ()
+   ); 
+   loop_decls r
    
+   
+let code_dispatch name l =
+   if 1 = List.length l then
+      label name
+      ++ (List.hd l).corps
+   else
+      let corps = "
+      function dispatch()
+         __print_string(\"dispatch\")
+         __print_string(\"multiple\")
+      end
+      " in
+      
+      let [DeclFonction(_, _, _, code)] = parse_str corps in
+      
+      label name
+      ++ (code_fct [] code)
+      
+      ++ (List.fold_left (++) nop (List.mapi (fun i f -> 
+         label (name ^ string_of_int i)
+         ++ f.corps
+      ) l))
+
+let code_fichier f =
    let code_exprs = loop_exprs f in
    
-   let code_decls = loop_decls f
-   ++ loop_decls (parse_str standard_library) in   
+   loop_decls f;
+   loop_decls (parse_str standard_library);
+   
+   let functions = (Smap.fold (fun name l code -> (code_dispatch name l) ++ code) !dispatchers nop) in
    
    { text= 
    globl "main"
@@ -409,8 +455,6 @@ let code_fichier f =
    ++ movq !%rsp !%r14
    ++ subq (imm (8 * (Smap.cardinal !globals))) !%rsp
    
-   
-   
    ++ code_exprs
    
    ++ movq !%rbp !%rsp
@@ -420,7 +464,7 @@ let code_fichier f =
    ++ ret
    
    ++ library ()
-   ++ code_decls
+   ++ functions
    
    ; data= label "int_format" ++ string "%lld"
    ++ label "string_format" ++ string "%s"
