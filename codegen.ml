@@ -23,6 +23,12 @@ let parse_str str =
    let buf = Lexing.from_string str in
    parse buf
 
+
+
+
+
+
+
 (* TODO : urgent, corrgier le segfault lorsque le tas est trop gros *)
 
 module Smap = Map.Make(String)
@@ -41,7 +47,20 @@ type var_manager =
 | Global
 | Local of (pos_t Smap.t) * (pos_t Smap.t)
 
+let types = ref Smap.empty
+let getters = ref ""
+
+let () = types := Smap.add "Nothing" 0 !types
+let () = types := Smap.add "Int64" 1 !types
+let () = types := Smap.add "Bool" 2 !types
+let () = types := Smap.add "String" 3 !types
+
+
 let standard_library = "
+function __arg(x)
+   return __deref(__access(x))
+end
+
 function __non(x)
    if x
       false
@@ -74,7 +93,15 @@ function __umoins(x)
    0 - x
 end
 
-function __print_bool(x)
+function __print(x :: String)
+   __print_string(x)
+end
+
+function __print(x :: Int64)
+   __print_int(x)
+end
+
+function __print(x :: Bool)
    if x
       __print_string(\"true\")
    else
@@ -82,25 +109,15 @@ function __print_bool(x)
    end
 end
 
-function __print(x)
-   if typeof(x) == 1
-      __print_int(x)
-   elseif typeof(x) == 2
-      __print_bool(x)
-   elseif typeof(x) == 3
-      __print_string(x)
-   end
-end
-
 function print()
    for i = 0 : __nb_args - 1
-      __print(__deref(__args_p + 8 * i))
+      __print(__arg(__args_p + 8 * i))
    end
 end
 
 function println()
    for i = 0 : __nb_args - 1
-      __print(__deref(__args_p + 8 * i))
+      __print(__arg(__args_p + 8 * i))
    end
    __print_string(\"\\n\")
 end
@@ -198,6 +215,18 @@ begin
    )
    )
 end
+| ExprAssignement(LvalueAttr(expr, attr), value) ->
+   code_expr vars expr
+   ++ pushq !%rax
+   ++ call ("__get_" ^ attr)
+   ++ addq (imm 8) !%rsp
+   ++ movq (ind rax ~ofs:(8)) !%rbx
+   ++ (match value with
+   | None -> nop
+   | Some e -> (pushq !%rbx ++ code_expr vars e ++ popq rbx 
+   ++ movq !%rax (ind rbx ~ofs:(0)))
+   )
+   ++ movq (ind rbx ~ofs:(0)) !%rax
 | ExprCall(name, args) -> 
    (* Exceptions pour les évaluations paresseuses *)
    if name = "__et" then
@@ -296,10 +325,30 @@ let library () =
    ++ ret
    
    (* Dereferencing pointers *)
+
    ++ label "__deref"
    ++ movq (ind rsp ~ofs:(8)) !%rax
-   ++ get_int !%rax !%rbx
-   ++ movq (ind rbx ~ofs:(0)) !%rax
+   ++ movq (ind rax ~ofs:(8)) !%rax
+   ++ ret
+   
+   ++ label "__ref"
+   ++ movq (ind rsp ~ofs:(8)) !%rbx
+   ++ set_int !%rbx
+   ++ ret
+   
+   ++ label "__access"
+   ++ movq (ind rsp ~ofs:(8)) !%rbx
+   ++ get_int !%rbx !%rbx
+   ++ movq (ind rbx ~ofs:(0)) !%rbx
+   ++ set_int !%rbx
+   ++ ret
+   
+   ++ label "__modify"
+   ++ movq (ind rsp ~ofs:(8)) !%rbx
+   ++ get_int !%rbx !%rbx
+   ++ movq (ind rsp ~ofs:(16)) !%rcx
+   ++ get_int !%rcx !%rcx
+   ++ movq !%rcx (ind rbx ~ofs:(0))
    ++ ret
 
    (* Print functions *)
@@ -369,6 +418,12 @@ let library () =
    ++ label "__inf_true"
    ++ set_bool (imm 1)
    ++ ret
+   
+   ++ label "__malloc"
+   ++ get_int (ind rsp ~ofs:(8)) !%rdi
+   ++ call "malloc"
+   ++ set_int !%rax
+   ++ ret
 
 let code_fct args body =
    let args_p = ref Smap.empty in
@@ -408,38 +463,9 @@ let code_fct args body =
    ++ movq !%rbp !%rsp
    ++ popq rbp
    ++ ret
-   
-
-let rec loop_exprs = function
-   | [] -> nop
-   | x :: r -> let code = (match x with
-      | DeclExpr(expr) -> code_expr (ref Global) expr
-      | _ -> nop
-   ) in 
-   code ++ loop_exprs r
-   
-
-let rec loop_fcts = function
-   | [] -> ()
-   | x :: r -> (match x with
-      | DeclFonction(nom, args, t, body) -> (
-         let corps = code_fct args body in
-         
-         dispatchers :=
-            Smap.add nom (
-               {signature = (List.map snd args); corps = corps}
-               :: (try
-                  Smap.find nom !dispatchers
-               with Not_found -> []) 
-            ) !dispatchers;
-         ()
-      )
-      | _ -> ()
-   ); 
-   loop_fcts r   
 
 let string_arg i =
-   "__deref(__args_p + " ^ (string_of_int (8 * i)) ^ ")"
+   "__arg(__args_p + " ^ (string_of_int (8 * i)) ^ ")"
 
 let jl_dispatch l =
    let tab = Array.of_list l in
@@ -486,10 +512,6 @@ let code_dispatch name l =
       end
       " in
       
-      (*print_string corps;
-      
-      failwith "ok";*)
-      
       let [DeclFonction(_, _, _, code)] = parse_str corps in
       
       label name
@@ -501,15 +523,79 @@ let code_dispatch name l =
       ) l))
    )
 
+let rec loop_exprs = function
+   | [] -> nop
+   | x :: r -> let code = (match x with
+      | DeclExpr(expr) -> code_expr (ref Global) expr
+      | _ -> nop
+   ) in 
+   code ++ loop_exprs r   
+
+let rec loop_fcts = function
+   | [] -> ()
+   | x :: r -> (match x with
+      | DeclFonction(nom, args, t, body) -> (
+         let corps = code_fct args body in
+         
+         dispatchers :=
+            Smap.add nom (
+               {signature = (List.map snd args); corps = corps}
+               :: (try
+                  Smap.find nom !dispatchers
+               with Not_found -> []) 
+            ) !dispatchers;
+         ()
+      )
+      | _ -> ()
+   ); 
+   loop_fcts r   
+
+let rec loop_structs = function
+   | [] -> ()
+   | x :: r -> (match x with
+      | DeclStructure(nom, mut, vars) -> (
+         let type_id = Smap.cardinal !types in
+         types := Smap.add nom type_id !types;
+         
+         getters := !getters ^ 
+         (* Constructeur *)
+         "function " ^ nom ^ "(" ^ (String.concat "," (List.map (fun x -> 
+           (fst x) ^ " :: " ^ (snd x)
+         ) vars)) ^ ")
+            ptr = __malloc(" ^ (string_of_int (List.length vars)) ^ ")
+            __modify(ptr, " ^ (string_of_int type_id) ^ ")
+            " ^
+            (String.concat "\n" (List.mapi (fun id x -> 
+               "__modify(ptr + " ^ (string_of_int (8 + 8 * id)) ^ ", __ref(" ^ (fst x) ^ "))"
+            ) vars))
+            ^ "
+            return __deref(ptr)
+         end\n"
+         ^ (String.concat "\n" (List.mapi (fun id x ->
+            "function __get_" ^ (fst x) ^ "(s :: " ^ nom ^ ")
+               return __ref(s) + " ^ (string_of_int (8 + 8 * id))^ "
+            end\n"
+         ) vars))
+      )
+      | _ -> ()
+   );
+   loop_structs r 
+
 let code_fichier f =
-   let code_exprs = loop_exprs (parse_str "
-      Int64 = 1
-      Bool = 2
-      String = 3
-   ")
+   loop_structs f;
+   
+   (*print_string !getters;
+   failwith "ok";*)
+   
+   let code_exprs = loop_exprs (parse_str 
+      (String.concat "\n" (
+         Smap.fold (fun nom id l -> ((nom ^ " = " ^ (string_of_int id) ^ "\n") :: l)) !types []
+      ))
+   )
    ++ loop_exprs f in
    
    loop_fcts f;
+   loop_fcts (parse_str !getters);
    loop_fcts (parse_str standard_library);
    
    let functions = (Smap.fold (fun name l code -> (code_dispatch name l) ++ code) !dispatchers nop) in
