@@ -92,8 +92,8 @@ fonction:
 
 
 param:
-| _ident = IDENT { _ident, None }
-| _ident = IDENT; TYPAGE; _type = IDENT { _ident, Some _type }
+| _ident = IDENT { _ident, "Any" }
+| _ident = IDENT; TYPAGE; _type = IDENT { _ident, _type }
 ;
 
 
