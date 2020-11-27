@@ -17,4 +17,5 @@ with
 (buf.lex_start_p.pos_cnum - buf.lex_start_p.pos_bol)
 (buf.lex_curr_p.pos_cnum - buf.lex_curr_p.pos_bol); exit 1)
 
-let () = print_program Format.std_formatter (code_fichier ast)
+let asm_out = (Filename.remove_extension filename) ^ ".s"
+let () = print_program (Format.formatter_of_out_channel (open_out asm_out)) (code_fichier ast)
