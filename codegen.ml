@@ -5,6 +5,9 @@ open Lexing
 open Scanf
 open Format
 
+(* TODO : réparer l'arithmétique pour la division entre nombres négatifs *)
+
+
 let list_init n f =
    let rec loop i =
       if i = n then []
@@ -28,12 +31,10 @@ let parse_str str =
 
 
 
-
-(* TODO : urgent, corrgier le segfault lorsque le tas est trop gros *)
-
 module Smap = Map.Make(String)
 
 let globals = ref Smap.empty
+let () = globals := Smap.add "nothing" (ind r14 ~ofs:(-8)) !globals
 
 type fct = {signature: string list; corps: [ `text ] X86_64.asm}
 
@@ -93,6 +94,14 @@ function __umoins(x)
    0 - x
 end
 
+function __puis(x, y)
+   prod = 1
+   for i = 1 : y
+      prod = x * prod
+   end
+   return prod
+end
+
 function __print(x :: String)
    __print_string(x)
 end
@@ -131,8 +140,6 @@ Registes :
    rax : valeur de retour
    <= r12 : réservé pour les utilitaires *)
 
-(* TODO : Générer les copies et les == pour chaque structure *)
-
 let label_id = ref 0
 
 let new_label () =
@@ -147,6 +154,11 @@ let get_int addr reg =
 let get_bool addr reg =
    movq addr !%r8
    ++ movq (ind r8 ~ofs:(8)) reg
+   
+let set_nothing () =
+   movq (imm 8) !%rdi
+   ++ call "malloc"
+   ++ movq (imm 0) (ind rax ~ofs:(0))
    
 let set_int code =
    movq (imm 16) !%rdi
@@ -210,7 +222,6 @@ begin
    | None -> movq position !%rax
    | Some expr -> (
       code_expr vars expr
-      (* TODO : make a copy iff it's an atomic value *)
       ++ movq !%rax position
    )
    )
@@ -218,7 +229,7 @@ end
 | ExprAssignement(LvalueAttr(expr, attr), value) ->
    code_expr vars expr
    ++ pushq !%rax
-   ++ call ("__get_" ^ attr)
+   ++ call ("__fun___get_" ^ attr)
    ++ addq (imm 8) !%rsp
    ++ movq (ind rax ~ofs:(8)) !%rbx
    ++ (match value with
@@ -260,7 +271,7 @@ end
          (fun expr -> (code_expr vars expr) ++ (pushq !%rax))
       (List.rev args))
       ++ movq (imm (List.length args)) !%r13
-      ++ call name
+      ++ call ("__fun_" ^ name)
       ++ addq (imm (8 * List.length args)) !%rsp
 | ExprListe(liste) -> 
    let rec loop = function
@@ -318,7 +329,7 @@ end
 
 let library () =
    (* Typeof function *)
-   label "typeof"
+   label "__fun_typeof"
    ++ movq (ind rsp ~ofs:(8)) !%r8
    ++ movq (ind r8 ~ofs:(0)) !%rbx
    ++ set_int !%rbx
@@ -326,24 +337,24 @@ let library () =
    
    (* Dereferencing pointers *)
 
-   ++ label "__deref"
+   ++ label "__fun___deref"
    ++ movq (ind rsp ~ofs:(8)) !%rax
    ++ movq (ind rax ~ofs:(8)) !%rax
    ++ ret
    
-   ++ label "__ref"
+   ++ label "__fun___ref"
    ++ movq (ind rsp ~ofs:(8)) !%rbx
    ++ set_int !%rbx
    ++ ret
    
-   ++ label "__access"
+   ++ label "__fun___access"
    ++ movq (ind rsp ~ofs:(8)) !%rbx
    ++ get_int !%rbx !%rbx
    ++ movq (ind rbx ~ofs:(0)) !%rbx
    ++ set_int !%rbx
    ++ ret
    
-   ++ label "__modify"
+   ++ label "__fun___modify"
    ++ movq (ind rsp ~ofs:(8)) !%rbx
    ++ get_int !%rbx !%rbx
    ++ movq (ind rsp ~ofs:(16)) !%rcx
@@ -354,14 +365,14 @@ let library () =
    (* Print functions *)
    
    (* TODO : Gérer l'alignement des printf *)
-   ++ label "__print_int"
+   ++ label "__fun___print_int"
    ++ movq (ilab "int_format") !%rdi
    ++ get_int (ind rsp ~ofs:(8)) !%rsi
    ++ xorq !%rax !%rax
    ++ call "printf"
    ++ ret
    
-   ++ label "__print_string"
+   ++ label "__fun___print_string"
    ++ movq (ilab "string_format") !%rdi
    ++ movq (ind rsp ~ofs:(8)) !%r8
    ++ leaq (ind r8 ~ofs:(16)) rsi
@@ -370,28 +381,28 @@ let library () =
    ++ ret
    
    (* Operators *)
-   ++ label "__plus"
+   ++ label "__fun___plus"
    ++ get_int (ind rsp ~ofs:(8)) !%rbx
    ++ get_int (ind rsp ~ofs:(16)) !%rcx
    ++ addq !%rbx !%rcx
    ++ set_int !%rcx
    ++ ret
    
-   ++ label "__moins"
+   ++ label "__fun___moins"
    ++ get_int (ind rsp ~ofs:(8)) !%rcx
    ++ get_int (ind rsp ~ofs:(16)) !%rbx
    ++ subq !%rbx !%rcx
    ++ set_int !%rcx
    ++ ret
    
-   ++ label "__fois"
+   ++ label "__fun___fois"
    ++ get_int (ind rsp ~ofs:(8)) !%rcx
    ++ get_int (ind rsp ~ofs:(16)) !%rbx
    ++ imulq !%rbx !%rcx
    ++ set_int !%rcx
    ++ ret
    
-   ++ label "div"
+   ++ label "__fun_div"
    ++ get_int (ind rsp ~ofs:(8)) !%rax
    ++ get_int (ind rsp ~ofs:(16)) !%r9
    ++ movq (imm 0) !%rdx
@@ -400,7 +411,7 @@ let library () =
    ++ set_int !%rbx
    ++ ret
    
-   ++ label "mod"
+   ++ label "__fun_mod"
    ++ get_int (ind rsp ~ofs:(8)) !%rax
    ++ get_int (ind rsp ~ofs:(16)) !%r9
    ++ movq (imm 0) !%rdx
@@ -408,7 +419,7 @@ let library () =
    ++ set_int !%rdx
    ++ ret
 
-   ++ label "__inf"
+   ++ label "__fun___inf"
    ++ get_int (ind rsp ~ofs:(8)) !%rcx
    ++ get_int (ind rsp ~ofs:(16)) !%rbx
    ++ cmpq !%rbx !%rcx
@@ -419,7 +430,7 @@ let library () =
    ++ set_bool (imm 1)
    ++ ret
    
-   ++ label "__malloc"
+   ++ label "__fun___malloc"
    ++ get_int (ind rsp ~ofs:(8)) !%rdi
    ++ call "malloc"
    ++ set_int !%rax
@@ -494,7 +505,7 @@ let code_dispatch name l =
       let l = List.sort (fun f1 f2 ->
          let nb1 = list_count "Any" f1.signature in
          let nb2 = list_count "Any" f2.signature in
-         compare nb1 nb2
+         -compare nb1 nb2
       ) l
       in
       let corps = "
@@ -504,21 +515,21 @@ let code_dispatch name l =
          (jl_dispatch l)
         ^
          (List.fold_left (^) "" (List.mapi (fun i f ->
-            "if __func_id == " ^ (string_of_int i) ^ " __func_" ^ name ^ (string_of_int i) ^ "(" ^
+            "if __func_id == " ^ (string_of_int i) ^ " return __func_" ^ name ^ (string_of_int i) ^ "(" ^
             String.concat "," ( list_init (List.length f.signature) string_arg)
             ^ "); end\n"
          ) l))
         ^ "
       end
       " in
-      
+
       let [DeclFonction(_, _, _, code)] = parse_str corps in
       
       label name
       ++ (code_fct [] code)
       
       ++ (List.fold_left (++) nop (List.mapi (fun i f -> 
-         label ("__func_" ^ name ^ string_of_int i)
+         label ("__fun___func_" ^ name ^ string_of_int i)
          ++ f.corps
       ) l))
    )
@@ -538,10 +549,10 @@ let rec loop_fcts = function
          let corps = code_fct args body in
          
          dispatchers :=
-            Smap.add nom (
+            Smap.add ("__fun_" ^ nom) (
                {signature = (List.map snd args); corps = corps}
                :: (try
-                  Smap.find nom !dispatchers
+                  Smap.find ("__fun_" ^ nom) !dispatchers
                with Not_found -> []) 
             ) !dispatchers;
          ()
@@ -583,10 +594,7 @@ let rec loop_structs = function
 
 let code_fichier f =
    loop_structs f;
-   
-   (*print_string !getters;
-   failwith "ok";*)
-   
+
    let code_exprs = loop_exprs (parse_str 
       (String.concat "\n" (
          Smap.fold (fun nom id l -> ((nom ^ " = " ^ (string_of_int id) ^ "\n") :: l)) !types []
@@ -609,6 +617,10 @@ let code_fichier f =
    (* Début des variables globales *)
    ++ movq !%rsp !%r14
    ++ subq (imm (8 * (Smap.cardinal !globals))) !%rsp
+   
+   (* Création du nothing *)
+   ++ set_nothing ()
+   ++ movq !%rax (ind r14 ~ofs:(-8))
    
    ++ code_exprs
    
