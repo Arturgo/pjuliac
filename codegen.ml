@@ -102,6 +102,22 @@ function __puis(x, y)
    return prod
 end
 
+function div(x, y)
+   if x < 0
+      return -__div_pos(-x, y)
+   else
+      return __div_pos(x, y)
+   end
+end
+
+function mod(x, y)
+   if x < 0
+      return -__mod_pos(-x, y)
+   else
+      return __mod_pos(x, y)
+   end
+end
+
 function __print(x :: String)
    __print_string(x)
 end
@@ -402,7 +418,7 @@ let library () =
    ++ set_int !%rcx
    ++ ret
    
-   ++ label "__fun_div"
+   ++ label "__fun___div_pos"
    ++ get_int (ind rsp ~ofs:(8)) !%rax
    ++ get_int (ind rsp ~ofs:(16)) !%r9
    ++ movq (imm 0) !%rdx
@@ -411,7 +427,7 @@ let library () =
    ++ set_int !%rbx
    ++ ret
    
-   ++ label "__fun_mod"
+   ++ label "__fun___mod_pos"
    ++ get_int (ind rsp ~ofs:(8)) !%rax
    ++ get_int (ind rsp ~ofs:(16)) !%r9
    ++ movq (imm 0) !%rdx
