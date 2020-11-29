@@ -114,7 +114,7 @@ let rec calculerContext1 context =function
     nomChamps:=(Ntmap.add x (S(nom)) !nomChamps);
     typeChamps:=(Ntmap.add x (List.hd (typage context "" [("",y)])) !typeChamps)) types;
 calculerContext1 (Ntmap.add nom st context) l
-|DeclFonction (nom, args, types, corps)::l when((uniques Ntmap.empty args) && nom<>"div"&&nom!="print"&&nom!="println")-> 
+|DeclFonction (nom, args, types, corps)::l when((uniques Ntmap.empty args) && nom<>"div"&&nom<>"print"&&nom<>"println")-> 
 if(Ntmap.mem nom context) then (
   calculerContext1 (Ntmap.add nom 
   (Fonctions((F((typage context "" args),(imposerType context types)))::
@@ -146,7 +146,7 @@ else failwith "pas bon type pour l'arithmetique")
 let a,ta=(typageExp context exp1) in 
 let b,tb=(typageExp context exp2) in
 ExprCall(op, [a;b]),Bool
-|ExprCall(op, l) when(op=="print" || op=="println") -> let (retour, types) = List.fold_left (*ajouter  *)
+|ExprCall(op, l) when(op="print" || op="println") -> let (retour, types) = List.fold_left (*ajouter  *)
   (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, ta::tex)) 
     ([], []) l in  
     ExprCall(op, retour), Nothing
