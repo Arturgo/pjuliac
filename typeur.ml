@@ -1,52 +1,41 @@
-type fichier = decl list
-
-and decl = 
-(* Nom, estMutable, paramètres *)
-| DeclStructure of string * bool * (string * string) list
-(* Nom, Paramètres sous la forme (arg, type), Type, et corps de la fonction *)
-| DeclFonction of string * (string * string) list * string option * expr
-| DeclExpr of expr
-
-and cst = CInt of int64 | CString of string | CBool of bool
-
-and expr =
-| ExprCst of cst
-| ExprCall of string * expr list
-| ExprListe of expr list
-| ExprAssignement of lvalue * expr option
-| ExprReturn of expr option
-| ExprIfElse of expr * expr * expr
-| ExprFor of string * expr * expr * expr
-| ExprWhile of expr * expr
-
-and lvalue =
-| LvalueVar of string
-| LvalueAttr of expr * string
+open Ast
 
 
-type typeEl = Any|Nothing|Int64|Bool|String|S of string
-let exemple =[DeclFonction ("f", [("x1", "Any"); ("x2", "Int64")], None,
-  ExprListe
-   [ExprReturn (Some (ExprAssignement (LvalueVar "x1", None)))]);
- DeclFonction ("f", [("x1", "Any"); ("x5", "Int64")], None,
-  ExprListe
-   [ExprReturn (Some (ExprAssignement (LvalueVar "x1", None)))])]
-
-type fonction = F of int * typeEl list*typeEl
+type fonction = F of typeEl list*typeEl
 
 type donne = Struct of bool * typeEl list|Fonctions of fonction list|Variable of int * typeEl 
 
 module Ntmap = Map.Make(String)
-let contextGeneral = Ntmap.empty
+let tousChamps = ref Ntmap.empty
+let typeChamps = ref Ntmap.empty
+let nomChamps = ref Ntmap.empty
+let typeencours = ref Any
+
+let recupVariable= function
+|Variable(n, tp) -> n, tp
+|_ -> failwith "fonction non attendue dans Lvalue"
 
 let peutAller a b=(a=Any||b=Any||a=b)
 let vaAller a b=(a=b||a=Any)  (*une fonction de type a et un arg donné b *)
 
-let n=ref 0
+let n=ref 1
+let nouv ()=
+  n:=!n+1;!n
+
+let smodifiable =function
+|Struct(true, _) -> true
+| _ -> false
+
+let donnestruc = function
+|Struct(a,b) -> b
+|_ -> failwith "pas de structure"
+
 let estStruct=function
 |Struct(_)->true
 |_ ->false
-
+let enFonc =function
+|Fonctions(l) -> l
+|_ -> failwith "pas une fonction "
 let rec verifierType l1 l2 = 
   match(l1,l2) with
   |([],[])-> true
@@ -54,7 +43,7 @@ let rec verifierType l1 l2 =
   |_ -> false
 
 let fctCompatible l =function
-  |F(a,b,c) -> verifierType b l
+  |F(a,b) -> verifierType a l
 
 let rec verifierTypeFort l1 l2 = 
   match(l1,l2) with
@@ -63,13 +52,15 @@ let rec verifierTypeFort l1 l2 =
   |_ -> false
 
 let fctNecessaire l =function
-  |F(a,b,c) -> verifierTypeFort b l
+  |F(a,b) -> verifierTypeFort a l
 
 let rec toutType =function
   |[]->failwith "pas dechoix incomprehensible"
-  |F(a,b,c)::[]->c
-  |F(a,b,c)::d->if(toutType  d=c)then c else Any
+  |F(b,c)::[]->c
+  |F(b,c)::d->if(toutType  d=c)then c else Any
 
+let first = function
+|(a,b) -> a
 let rec typage context nom = function
 |[] -> []
 |(v, "Any")::b -> Any :: (typage context nom b)
@@ -89,19 +80,26 @@ let rec uniques context = function
 |(nom, _)::b when(not (Ntmap.mem nom context))-> uniques (Ntmap.add nom "" context) b
 |_ -> failwith "plusieurs fois le même nom"
 
-(** to do ajouter les fcts print, div, println**)
+let nomVariable nom num =
+  if(num=0)then nom
+  else
+    String.concat "" [nom; string_of_int num]
 
-let rec variablesGlobales context = function
-| ExprCall (op, els) -> List.fold_left variablesGlobales context els
-| ExprListe(els) -> List.fold_left variablesGlobales context els
-| ExprAssignement(LvalueVar(nom), None) -> incr n; Ntmap.add nom (Variable(!n, Any)) context
-| ExprAssignement(LvalueVar(nom), Some el) -> variablesGlobales (Ntmap.add nom (Variable(!n, Any)) context) el
-| ExprReturn(Some el) -> variablesGlobales context el
-| ExprIfElse(a,b,c) -> List.fold_left variablesGlobales context [a;b;c]
-| ExprFor (a,b,c,d) -> List.fold_left variablesGlobales context [b;c]
-| ExprWhile(a,b) -> variablesGlobales context a
-| _ -> context
+let rec ajoutVariables context=function
+|[] -> context
+|(a,b)::l -> ajoutVariables (Ntmap.add a (Variable(!n, (imposerType context (Some b)))) context) l 
+(** to do ajouter les fcts print, println**)
 
+let rec variablesExpression context = function
+| ExprCall (op, els) -> List.fold_left variablesExpression context els
+| ExprListe(els) -> List.fold_left variablesExpression context els
+| ExprAssignement(LvalueVar(nom), None) -> context
+| ExprAssignement(LvalueVar(nom), Some el) -> variablesExpression (Ntmap.add nom (Variable(!n, Any)) context) el
+| ExprReturn(Some el) -> variablesExpression context el
+| ExprIfElse(a,b,c) -> List.fold_left variablesExpression context [a;b;c]
+| ExprFor (a,b,c,d) -> List.fold_left variablesExpression context [b;c]
+| ExprWhile(a,b) -> variablesExpression context a
+| _ -> context (*on ne peut pas créer de variable dans exprassignement si lvalue compliquee *)
 
 let toF=function
   |Fonctions(l) ->l
@@ -110,74 +108,146 @@ let toF=function
 let rec calculerContext1 context =function
 |[] -> context
 |DeclStructure(nom, modif, types)::l when((uniques Ntmap.empty types) && not (Ntmap.mem nom context))-> 
-calculerContext1 (Ntmap.add nom (Struct(modif, (typage context nom types))) context) l
+  let st=(Struct(modif, (typage context nom types))) in
+  List.iter (fun (x,y)-> if(Ntmap.mem x !tousChamps)then failwith "champs deja present"else
+    tousChamps:=(Ntmap.add x st !tousChamps);
+    nomChamps:=(Ntmap.add x (S(nom)) !nomChamps);
+    typeChamps:=(Ntmap.add x (List.hd (typage context "" [("",y)])) !typeChamps)) types;
+calculerContext1 (Ntmap.add nom st context) l
 |DeclFonction (nom, args, types, corps)::l when((uniques Ntmap.empty args) && nom<>"div"&&nom!="print"&&nom!="println")-> 
 if(Ntmap.mem nom context) then (
-  incr n; calculerContext1 (Ntmap.add nom 
-  (Fonctions((F((!n),(typage context "" args),(imposerType context types)))::
+  calculerContext1 (Ntmap.add nom 
+  (Fonctions((F((typage context "" args),(imposerType context types)))::
   (toF((Ntmap.find nom context))))) context) l)
 else(
-  incr n; calculerContext1 (Ntmap.add nom 
-  (Fonctions((F((!n),(typage context "" args),(imposerType context types)))::
+  calculerContext1 (Ntmap.add nom 
+  (Fonctions((F((typage context "" args),(imposerType context types)))::
   [])) context) l)
 
-|DeclExpr (expr) ::l-> calculerContext1 (variablesGlobales context expr) l
+|DeclExpr (expr) ::l-> calculerContext1 (variablesExpression context expr) l
 |_ -> failwith "mauvais nom"
 
-let contextGeneral = (calculerContext1 (Ntmap.add "nothing" (Variable ((-1),Nothing)) contextGeneral) exemple) 
 
+let modifiable context = function
+|S(nom) -> smodifiable (Ntmap.find nom context)
+|_ -> true
 
-let rec typageExp context =function
-|ExprCst(CInt n) -> ExprCst (CInt n),Int64, context
-|ExprCst(CBool n) -> ExprCst (CBool n),Bool,context
-|ExprCst(CString n) -> ExprCst (CString n),String,context
+let rec typageExp (context:(donne Ntmap.t)) =function
+|ExprCst(CInt n) -> ExprCst (CInt n),Int64
+|ExprCst(CBool n) -> ExprCst (CBool n),Bool
+|ExprCst(CString n) -> ExprCst (CString n),String
 |ExprCall(op, [exp1;exp2]) when(op="__fois" ||op="__plus"||op="__moins"||op="mod"||op="__puis"||op="div")->
-let a,ta,contexta=(typageExp context exp1) in 
-let b,tb,contextb=(typageExp contexta exp2) in
+let a,ta=(typageExp context exp1) in 
+let b,tb=(typageExp context exp2) in
 (if((peutAller ta Int64)&&(peutAller tb Int64))then 
-ExprCall(op, [a;b]),Int64, contextb
+ExprCall(op, [a;b]),Int64
 else failwith "pas bon type pour l'arithmetique")
 |ExprCall(op, [exp1;exp2]) when(op="__egal" ||op="__diff")->
-let a,ta,contexta=(typageExp context exp1) in 
-let b,tb,contextb=(typageExp contexta exp2) in
-ExprCall(op, [a;b]),Bool, contextb
-|ExprCall("__non", [exp1]) ->let a,ta,contexta=(typageExp context exp1) in 
+let a,ta=(typageExp context exp1) in 
+let b,tb=(typageExp context exp2) in
+ExprCall(op, [a;b]),Bool
+|ExprCall(op, l) when(op=="print" || op=="println") -> let (retour, types) = List.fold_left (*ajouter  *)
+  (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, ta::tex)) 
+    ([], []) l in  
+    ExprCall(op, retour), Nothing
+
+|ExprCall("__non", [exp1]) ->let a,ta=(typageExp context exp1) in 
 (if((peutAller ta Bool))then 
-ExprCall("__non", [a]),Bool,contexta
+ExprCall("__non", [a]),Bool
 else failwith "pas bon type pour la négation")
-|ExprCall("__umoins", [exp1]) ->let a,ta,contexta=(typageExp context exp1) in 
+|ExprCall("__umoins", [exp1]) ->let a,ta=(typageExp context exp1) in 
 (if((peutAller ta Int64))then 
-ExprCall("__umoins", [a]),Int64, contexta
+ExprCall("__umoins", [a]),Int64
 else failwith "pas bon type pour le moins unaire")
 |ExprCall(op, [exp1;exp2]) when(op="__inf" ||op="__sup"||op="__infegal"||op="__supegal")->
-let a,ta,contexta=(typageExp context exp1) in 
-let b,tb,contextb=(typageExp contexta exp2) in
+let a,ta=(typageExp context exp1) in 
+let b,tb=(typageExp context exp2) in
 (if(((peutAller ta  Int64)||(peutAller ta  Bool))&&
 ((peutAller tb  Int64)||(peutAller tb  Bool)))then 
-ExprCall(op, [a;b]),Bool, contextb
+ExprCall(op, [a;b]),Bool
 else failwith "pas bon type pour la comparaison")
 |ExprCall(op, [exp1;exp2]) when(op="__et" ||op="__ou")->
-let a,ta,contexta=(typageExp context exp1) in 
-let b,tb,contextb=(typageExp contexta exp2) in
+let a,ta=(typageExp context exp1) in 
+let b,tb=(typageExp context exp2) in
 (if((peutAller ta  Bool)&&(peutAller tb  Bool))then 
-ExprCall(op, [a;b]),Bool, contextb
+ExprCall(op, [a;b]),Bool
 else (failwith "pas bon type pour l'arithmetique booléenne"))
-|ExprCall(op, l) -> let (retour, types, contextN) = List.fold_left 
-  (fun (ex, tex, cex) x -> let a,ta,contextA=(typageExp cex x) in (a::ex, ta::tex, contextA)) 
-    ([], [], context) l in  
-    let l1 = List.filter (fctCompatible types) (Ntmap.find op context) and
-      l2 =List.filter (fctNecessaire types) (Ntmap.find op context) in
+|ExprCall(op, l) when(estStruct (Ntmap.find op context)) -> let s =donnestruc(Ntmap.find op context)
+in let (retour, types) = List.fold_left (*ajouter  *)
+  (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, ta::tex)) 
+    ([], []) l in
+  if(List.for_all2 peutAller s types) then ExprCall(op, retour), S(op)
+  else
+    failwith "constructeur incompatible"
+|ExprCall(op, l) -> let (retour, types) = List.fold_left (*ajouter  *)
+  (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, ta::tex)) 
+    ([], []) l in  
+    let l1 = List.filter (fctCompatible types) (enFonc(Ntmap.find op context))and
+      l2 =List.filter (fctNecessaire types) (enFonc(Ntmap.find op context)) in
   if(l1=[]||(List.length l2)>1) then failwith "pas de compatibilité de fct"
   else 
-    ExprCall(op, retour), toutType l1, contextN
-| _ -> failwith "pas trouvé"
+    ExprCall(op, retour), toutType l1
+|ExprListe(l) -> let (retour, types) = List.fold_left 
+  (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, ta)) 
+    ([], Any) l in ExprListe(retour), types
+|ExprReturn(Some el) -> let a,ta=typageExp context el in if(peutAller ta !typeencours)then
+   ExprReturn(Some a),Any else failwith "retour de fonction incorrect"
+|ExprReturn(None) -> if(peutAller Nothing !typeencours)then
+   ExprReturn(None),Any else failwith "retour de fonction incorrect et vide"
+|ExprIfElse(e1,e2,e3) -> let ee1, b = typageExp  context e1 in if(peutAller b Bool) then 
+  let ee2, b2=typageExp context e2 and ee3, b3=typageExp context e3 in
+  ExprIfElse(ee1,ee2,ee3), (if(b2=b3)then b2 else Any)
+else failwith "c'est un if mais pas de type bool"
+|ExprFor(nom, e1,e2,corps) -> let ee1,b1=typageExp context e1 and ee2,b2=typageExp context e2 in
+  if(peutAller b1 Int64 && peutAller b2 Int64) then
+  (incr n;let a=(!n) in
+  let e,t=typageExp (variablesExpression (Ntmap.add nom (Variable (a,Int64)) context) corps) corps in
+    ExprFor(nomVariable nom a, ee1,ee2,e),Nothing
+  )else
+   failwith "iterateurs pas entiers"
+|ExprWhile(condition,corps) -> let el, tp = typageExp context condition in 
+  if(peutAller tp Bool) then 
+    (incr n;let e,t=typageExp (variablesExpression context corps) corps in
+      ExprWhile(el, e), Nothing)
+  else
+    failwith "condition while pas booléenne"
+|ExprAssignement(lv, None) -> let vl, tval, modif =typageLvalue context lv in
+  ExprAssignement(vl, None), tval
+|ExprAssignement(lv, Some valeur) -> let el, tEl,modif = typageLvalue context lv in 
+let vl, tval = typageExp context valeur in
+  if(peutAller tEl tval) then
+    if(modif) then
+      ExprAssignement(el, Some vl), tEl
+    else
+      failwith "structure non mutable"
+  else
+    failwith "egalite types incompatibles"
 
-(*
-| ExprCallTyp of string * expr list * typeEl
-| ExprListeTyp of expr list * typeEl
-| ExprAssignementTyp of lvalue * expr option * typeEl
-| ExprReturnTyp of expr option * typeEl
-| ExprIfElseTyp of expr * expr * expr * typeEl
-| ExprForTyp of string * expr * expr * expr * typeEl
-| ExprWhileTyp of expr * expr * typeEl
-*)
+and typageLvalue context= function
+|LvalueVar(nom) when(Ntmap.mem nom context)-> 
+  let num, tp = recupVariable (Ntmap.find nom context) in
+    LvalueVar(nomVariable nom num), tp,modifiable context tp
+| LvalueAttr(gauche, nom) -> let el, tp = typageExp context gauche in
+  if(peutAller tp (Ntmap.find nom !nomChamps))then
+    LvalueAttr(el, nom), Ntmap.find nom !typeChamps, smodifiable (Ntmap.find nom !tousChamps)
+  else 
+    failwith "la structure n'a pas le bon attribut"
+| _ -> failwith "pas le bon type"
+
+let rec calculerRep context = function
+|[] -> []
+|DeclStructure(a,b,c)::l -> (DeclStructure(a,b,c))::(calculerRep context l)
+|DeclFonction(nom, args, types, corps)::l -> typeencours:= imposerType context types;n:=0;
+let c = variablesExpression context corps in 
+let ret, tp = typageExp (ajoutVariables c args) corps in typeencours:=Any;
+(DeclFonction(nom, args, types, ret))::(calculerRep context l)
+|DeclExpr(ex)::l -> (DeclExpr(first(typageExp context ex)))::(calculerRep context l)
+
+let calculerTypage arbre=
+tousChamps := Ntmap.empty;
+ typeChamps := Ntmap.empty;
+ nomChamps := Ntmap.empty;
+ typeencours := Any;
+  n:=0;
+  let contextGeneral1 = (calculerContext1 (Ntmap.add "nothing" (Variable ((-1),Nothing))  Ntmap.empty) arbre) in
+  calculerRep contextGeneral1 arbre

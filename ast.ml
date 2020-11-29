@@ -27,7 +27,7 @@ and lvalue =
 
 
 
-type typeEl = Any|Nothing|Int64|Bool|String|S
+type typeEl = Any|Nothing|Int64|Bool|String|S of string
 
 and exprTyp =
 | ExprCstTyp of cst * typeEl
