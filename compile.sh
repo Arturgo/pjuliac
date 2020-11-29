@@ -39,6 +39,8 @@ ocamlopt -c julia.ml
 ocamlopt -o pjuliac ast.cmx lexer.cmx parser.cmx typeur.cmx x86_64.cmx codegen.cmx julia.cmx
 
 cp pjuliac ../pjuliac
+cp pjuliac ../Tests/pjuliac
+
 
 ./pjuliac test.jl > test.s
 

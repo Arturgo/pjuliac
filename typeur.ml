@@ -1,14 +1,11 @@
 (*type fichier = decl list
-
 and decl = 
 (* Nom, estMutable, paramètres *)
 | DeclStructure of string * bool * (string * string) list
 (* Nom, Paramètres sous la forme (arg, type), Type, et corps de la fonction *)
 | DeclFonction of string * (string * string) list * string option * expr
 | DeclExpr of expr
-
 and cst = CInt of int64 | CString of string | CBool of bool
-
 and expr =
 | ExprCst of cst
 | ExprCall of string * expr list
@@ -18,23 +15,15 @@ and expr =
 | ExprIfElse of expr * expr * expr
 | ExprFor of string * expr * expr * expr
 | ExprWhile of expr * expr
-
 and lvalue =
 | LvalueVar of string
 | LvalueAttr of expr * string
-
-
-
-
-
 type typeEl = Any|Nothing|Int64|Bool|String|S of string
-
-
 let ex=[DeclExpr
       (ExprAssignement (LvalueVar "nothing",
-        Some (ExprCst (CInt 0L))))]*)
+        Some (ExprCst (CInt 0L))))]
+*)
 open Ast
-
 type fonction = F of typeEl list*typeEl
 
 type donne = Struct of bool * typeEl list|Fonctions of fonction list|Variable of int * typeEl 
@@ -85,6 +74,7 @@ let rec verifierType l1 l2 =
 
 let fctCompatible l =function
   |F(a,b) -> verifierType a l
+let iterG a b c =let e,f =List.fold_left a b c in List.rev e,List.rev f
 
 let rec verifierTypeFort l1 l2 = 
   match(l1,l2) with
@@ -131,7 +121,7 @@ let rec ajoutVariables context=function
 |(a,b)::l -> ajoutVariables (Ntmap.add a (Variable(!n, (imposerType context (Some b)))) context) l 
 (** to do ajouter les fcts print, println**)
 
-let rec variablesExpression context = function
+let rec variablesExpression (context:donne Ntmap.t) = function
 | ExprCall (op, els) -> List.fold_left variablesExpression context els
 | ExprListe(els) -> List.fold_left variablesExpression context els
 | ExprAssignement(LvalueVar(nom), None) -> context
@@ -187,7 +177,7 @@ else failwith "pas bon type pour l'arithmetique")
 let a,ta=(typageExp context exp1) in 
 let b,tb=(typageExp context exp2) in
 ExprCall(op, [a;b]),Bool
-|ExprCall(op, l) when(op="print" || op="println") -> let (retour, types) = List.fold_left (*ajouter  *)
+|ExprCall(op, l) when(op="print" || op="println") -> let (retour, types) = iterG 
   (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, ta::tex)) 
     ([], []) l in  
     ExprCall(op, retour), Nothing
@@ -214,13 +204,13 @@ let b,tb=(typageExp context exp2) in
 ExprCall(op, [a;b]),Bool
 else (failwith "pas bon type pour l'arithmetique booléenne"))
 |ExprCall(op, l) when(estStruct (Ntmap.find op context)) -> let s =donnestruc(Ntmap.find op context)
-in let (retour, types) = List.fold_left (*ajouter  *)
+in let (retour, types) = iterG (*ajouter  *)
   (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, ta::tex)) 
     ([], []) l in
   if(List.for_all2 peutAller s types) then ExprCall(op, retour), S(op)
   else
     failwith "constructeur incompatible"
-|ExprCall(op, l) -> let (retour, types) = List.fold_left (*ajouter  *)
+|ExprCall(op, l) -> let (retour, types) = iterG (*ajouter  *)
   (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, ta::tex)) 
     ([], []) l in  
     let l1 = List.filter (fctCompatible types) (enFonc(Ntmap.find op context))and
@@ -228,9 +218,9 @@ in let (retour, types) = List.fold_left (*ajouter  *)
   if(l1=[]||(List.length l2)>1) then failwith "pas de compatibilité de fct"
   else 
     ExprCall(op, retour), toutType l1
-|ExprListe(l) -> let (retour, types) = List.fold_left 
-  (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, ta)) 
-    ([], Any) l in ExprListe(retour), types
+|ExprListe(l) -> let (retour, types) = iterG 
+  (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, [ta])) 
+    ([], [Any]) l in ExprListe(retour), List.hd types
 |ExprReturn(Some el) -> let a,ta=typageExp context el in if(peutAller ta !typeencours)then
    ExprReturn(Some a),Any else failwith "retour de fonction incorrect"
 |ExprReturn(None) -> if(peutAller Nothing !typeencours)then
