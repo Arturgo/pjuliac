@@ -18,7 +18,11 @@ with
 (buf.lex_start_p.pos_cnum - buf.lex_start_p.pos_bol)
 (buf.lex_curr_p.pos_cnum - buf.lex_curr_p.pos_bol); exit 1)
 
-let ast = calculerTypage ast
+
+let ast = try
+   calculerTypage ast
+with
+| Failure(s) -> (Format.printf "%s\n" s; exit 1)
 
 (*
 let asm_out = (Filename.remove_extension filename) ^ ".s"
