@@ -1,5 +1,39 @@
-open Ast
+(*type fichier = decl list
 
+and decl = 
+(* Nom, estMutable, paramètres *)
+| DeclStructure of string * bool * (string * string) list
+(* Nom, Paramètres sous la forme (arg, type), Type, et corps de la fonction *)
+| DeclFonction of string * (string * string) list * string option * expr
+| DeclExpr of expr
+
+and cst = CInt of int64 | CString of string | CBool of bool
+
+and expr =
+| ExprCst of cst
+| ExprCall of string * expr list
+| ExprListe of expr list
+| ExprAssignement of lvalue * expr option
+| ExprReturn of expr option
+| ExprIfElse of expr * expr * expr
+| ExprFor of string * expr * expr * expr
+| ExprWhile of expr * expr
+
+and lvalue =
+| LvalueVar of string
+| LvalueAttr of expr * string
+
+
+
+
+
+type typeEl = Any|Nothing|Int64|Bool|String|S of string
+
+
+let ex=[DeclExpr
+      (ExprAssignement (LvalueVar "nothing",
+        Some (ExprCst (CInt 0L))))]*)
+open Ast
 
 type fonction = F of typeEl list*typeEl
 
@@ -14,6 +48,13 @@ let typeencours = ref Any
 let recupVariable= function
 |Variable(n, tp) -> n, tp
 |_ -> failwith "fonction non attendue dans Lvalue"
+let afficher = function
+|Any->print_string "Any\n"
+|Nothing->print_string "Nothing\n"
+|Int64->print_string "Int64\n"
+|Bool->print_string "Bool\n"
+|S(n) -> print_string n;print_newline()
+|String ->prerr_string "String\n"
 
 let peutAller a b=(a=Any||b=Any||a=b)
 let vaAller a b=(a=b||a=Any)  (*une fonction de type a et un arg donné b *)
@@ -239,8 +280,11 @@ let rec calculerRep context = function
 |DeclStructure(a,b,c)::l -> (DeclStructure(a,b,c))::(calculerRep context l)
 |DeclFonction(nom, args, types, corps)::l -> typeencours:= imposerType context types;n:=0;
 let c = variablesExpression context corps in 
-let ret, tp = typageExp (ajoutVariables c args) corps in typeencours:=Any;
-(DeclFonction(nom, args, types, ret))::(calculerRep context l)
+let ret, tp = typageExp (ajoutVariables c args) corps in
+if(peutAller tp !typeencours) then (typeencours:=Any;
+(DeclFonction(nom, args, types, ret))::(calculerRep context l))
+else 
+  failwith "retour implicite de fonction illegal"
 |DeclExpr(ex)::l -> (DeclExpr(first(typageExp context ex)))::(calculerRep context l)
 
 let calculerTypage arbre=
@@ -249,5 +293,5 @@ tousChamps := Ntmap.empty;
  nomChamps := Ntmap.empty;
  typeencours := Any;
   n:=0;
-  let contextGeneral1 = (calculerContext1 (Ntmap.add "nothing" (Variable ((-1),Nothing))  Ntmap.empty) arbre) in
+  let contextGeneral1 = Ntmap.add "nothing" (Variable (0,Nothing)) (calculerContext1  Ntmap.empty arbre) in
   calculerRep contextGeneral1 arbre
