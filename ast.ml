@@ -28,14 +28,3 @@ and lvalue =
 
 
 type typeEl = Any|Nothing|Int64|Bool|String|S of string
-
-and exprTyp =
-| ExprCstTyp of cst * typeEl
-| ExprCallTyp of string * exprTyp list * typeEl
-| ExprListeTyp of exprTyp list * typeEl
-| ExprAssignementTyp of lvalue * exprTyp option * typeEl
-| ExprReturnTyp of exprTyp option * typeEl
-| ExprIfElseTyp of exprTyp * exprTyp * exprTyp * typeEl
-| ExprForTyp of string * exprTyp * exprTyp * exprTyp * typeEl
-| ExprWhileTyp of exprTyp * exprTyp * typeEl
-
