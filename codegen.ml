@@ -4,6 +4,7 @@ open Parser
 open Lexing
 open Scanf
 open Format
+open Filename
 
 
 (* TODO : réparer l'arithmétique pour la division entre nombres négatifs *)
@@ -59,11 +60,9 @@ let () = types := Smap.add "String" 3 !types
 
 
 let standard_library = "
-function __arg(x)
-   return __deref(__access(x))
-end
+# elements non types
 
-function __non(x)
+function __non__uncheck(x)
    if x
       false
    else
@@ -71,8 +70,22 @@ function __non(x)
    end
 end
 
+function __egal__uncheck(x, y)
+   __non__uncheck(x - y)
+end
+
+# elements types
+
+function __arg(x)
+   return __deref(__access(x))
+end
+
+function __non(x)
+   __non__uncheck(x)
+end
+
 function __egal(x, y)
-   !(x - y)
+   __egal__uncheck(x, y)
 end
 
 function __diff(x, y)
@@ -105,7 +118,7 @@ end
 
 function div(x, y)
    if y == 0
-      println(\"erreur: division par zero\")
+      __print_string(\"erreur: division par zero\\n\")
       __exit()
    end
    
@@ -118,7 +131,7 @@ end
 
 function mod(x, y)
    if y == 0
-      println(\"erreur: division par zero\")
+      __print_string(\"erreur: division par zero\\n\")
       __exit()
    end
    
@@ -256,6 +269,7 @@ end
 | ExprAssignement(LvalueAttr(expr, attr), value) ->
    code_expr vars expr
    ++ pushq !%rax
+   ++ movq (imm 1) !%r13
    ++ call ("__fun___get_" ^ attr)
    ++ addq (imm 8) !%rsp
    ++ movq (ind rax ~ofs:(8)) !%rbx
@@ -412,7 +426,7 @@ let library () =
    ++ call "printf"
    ++ ret
    
-   (* Operators *)
+   (* Operators *)   
    ++ label "__fun___plus"
    ++ get_int (ind rsp ~ofs:(8)) !%rbx
    ++ get_int (ind rsp ~ofs:(16)) !%rcx
@@ -510,6 +524,25 @@ let code_fct args body =
 let string_arg i =
    "__arg(__args_p + " ^ (string_of_int (8 * i)) ^ ")"
 
+let check_sig s =
+   let rec loop i = function
+   | [] -> []
+   | x :: r -> 
+      if x = "Any" then 
+         loop (i + 1) r 
+      else 
+         ("__egal__uncheck(typeof(" ^ (string_arg i) ^ "), " ^ x ^ ")") :: loop (i + 1) r
+   in
+   
+   let conditions = loop 0 s in
+   
+   if 0 = List.length conditions then
+      "__egal__uncheck(__nb_args, " ^ (string_of_int (List.length s)) ^ ")"
+   else 
+      "__egal__uncheck(__nb_args, " ^ (string_of_int (List.length s)) ^  ") && (" ^
+      (String.concat " && " conditions)
+      ^ ")"
+
 let jl_dispatch l =
    let tab = Array.of_list l in
    
@@ -517,23 +550,18 @@ let jl_dispatch l =
    
    for i = 0 to (Array.length tab) - 1 do
       let curFct = tab.(i) in
-      julia := !julia ^ "if (__nb_args == " ^ (string_of_int (List.length curFct.signature)) ^ " && (" ^
-      (String.concat " && " (List.mapi (fun i t ->
-         if t <> "Any" then
-            ("typeof(" ^ (string_arg i) ^ ") == " ^ t)
-         else
-            "true"
-      ) curFct.signature))
-      ^ ")) __func_id = " ^ (string_of_int i) ^ "; end\n"
+      julia := !julia ^ "if (" ^ (check_sig curFct.signature) ^ ") __func_id = " ^ (string_of_int (1 + i)) ^ "; end\n"
    done;
    
    !julia
 
 let code_dispatch name l =
-   if 1 = List.length l then
+   (* Exceptions *)
+   if Filename.check_suffix name "__uncheck" || name = "__fun___arg" || name = "__fun_print" || name = "__fun_println" then (
+      (*print_string name;*)
       label name
       ++ (List.hd l).corps
-   else (
+   ) else (
       let l = List.sort (fun f1 f2 ->
          let nb1 = list_count "Any" f1.signature in
          let nb2 = list_count "Any" f2.signature in
@@ -542,18 +570,18 @@ let code_dispatch name l =
       in
       let corps = "
       function dispatch()
-         __func_id = -1
+         __func_id = 0
       " ^
          (jl_dispatch l)
         ^
          (List.fold_left (^) "" (List.mapi (fun i f ->
-            "if __func_id == " ^ (string_of_int i) ^ " return __func_" ^ name ^ (string_of_int i) ^ "(" ^
+            "if __egal__uncheck(__func_id, " ^ (string_of_int (1 + i)) ^ ") return __func_" ^ name ^ (string_of_int (1 + i)) ^ "(" ^
             String.concat "," ( list_init (List.length f.signature) string_arg)
             ^ "); end\n"
          ) l))
         ^ "
-        if __func_id == -1
-            print(\"erreur: parametres incorrects\")
+        if __egal__uncheck(__func_id, 0)
+            __print_string(\"erreur: parametres incorrects\\n\")
             __exit()
         end
       end
@@ -565,7 +593,7 @@ let code_dispatch name l =
       ++ (code_fct [] code)
       
       ++ (List.fold_left (++) nop (List.mapi (fun i f -> 
-         label ("__fun___func_" ^ name ^ string_of_int i)
+         label ("__fun___func_" ^ name ^ string_of_int (1 + i))
          ++ f.corps
       ) l))
    )
@@ -630,7 +658,7 @@ let rec loop_structs = function
 
 let code_fichier f =
    loop_structs f;
-
+   
    let code_exprs = loop_exprs (parse_str 
       (String.concat "\n" (
          Smap.fold (fun nom id l -> ((nom ^ " = " ^ (string_of_int id) ^ "\n") :: l)) !types []
