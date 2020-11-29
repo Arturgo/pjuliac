@@ -1,5 +1,6 @@
 open Ast
 
+
 type fonction = F of typeEl list*typeEl
 
 type donne = Struct of bool * typeEl list|Fonctions of fonction list|Variable of int * typeEl 
@@ -145,6 +146,11 @@ else failwith "pas bon type pour l'arithmetique")
 let a,ta=(typageExp context exp1) in 
 let b,tb=(typageExp context exp2) in
 ExprCall(op, [a;b]),Bool
+|ExprCall(op, l) when(op=="print" || op=="println") -> let (retour, types) = List.fold_left (*ajouter  *)
+  (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, ta::tex)) 
+    ([], []) l in  
+    ExprCall(op, retour), Nothing
+
 |ExprCall("__non", [exp1]) ->let a,ta=(typageExp context exp1) in 
 (if((peutAller ta Bool))then 
 ExprCall("__non", [a]),Bool
