@@ -24,9 +24,9 @@ let ex=[DeclFonction ("f", [("x", "Any")], None,
    [ExprAssignement
      (LvalueAttr (ExprAssignement (LvalueVar "x", None), "a"),
      None)])]
-
 *)
 open Ast
+
 type fonction = F of typeEl list*typeEl
 
 type donne = Struct of bool * typeEl list|Fonctions of fonction list|Variable of int * typeEl 
@@ -69,6 +69,9 @@ let estStruct=function
 let enFonc =function
 |Fonctions(l) -> l
 |_ -> failwith "pas une fonction "
+let toL =function
+|F(a,b) ->a
+
 let rec verifierType l1 l2 = 
   match(l1,l2) with
   |([],[])-> true
@@ -150,9 +153,12 @@ let rec calculerContext1 context =function
 calculerContext1 (Ntmap.add nom st context) l
 |DeclFonction (nom, args, types, corps)::l when((uniques Ntmap.empty args) && nom<>"div"&&nom<>"print"&&nom<>"println")-> 
 if(Ntmap.mem nom context) then (
+  if(List.exists (fun (F(arg, t)) -> arg=(typage context "" args)) (toF((Ntmap.find nom context))))then
+    failwith "plusieurs fcts indistinguables"
+  else(
   calculerContext1 (Ntmap.add nom 
   (Fonctions((F((typage context "" args),(imposerType context types)))::
-  (toF((Ntmap.find nom context))))) context) l)
+  (toF((Ntmap.find nom context))))) context) l))
 else(
   calculerContext1 (Ntmap.add nom 
   (Fonctions((F((typage context "" args),(imposerType context types)))::
@@ -161,6 +167,18 @@ else(
 |DeclExpr (expr) ::l-> calculerContext1 (variablesExpression context expr) l
 |_ -> failwith "mauvais nom"
 
+let rec less a b=
+  match(a,b) with
+    |([],[])-> true
+    |(c::d,e::f) -> (vaAller e c)&&(less d f)
+    |_ -> false
+
+let rec meilleur av = function
+|[] -> true
+|(F(a,c))::b when(less a av)-> meilleur a b
+|(F(a,c))::b when(less av a)-> meilleur av b
+|_ -> false
+let rec creerL n =if(n==0) then [] else Any::(creerL (n-1))
 
 let modifiable context = function
 |S(nom) -> smodifiable (Ntmap.find nom context)
@@ -219,7 +237,9 @@ in let (retour, types) = iterG (*ajouter  *)
     ([], []) l in  
     let l1 = List.filter (fctCompatible types) (enFonc(Ntmap.find op context))and
       l2 =List.filter (fctNecessaire types) (enFonc(Ntmap.find op context)) in
-  if(l1=[]||(List.length l2)>1) then failwith "pas de compatibilité de fct"
+  if(l1=[]) then failwith "pas de fct compatible"
+  else if ((List.length l2)>0 && not (meilleur (creerL (List.length (toL(List.hd l2)))) l2)) then
+    failwith "choix impossible à faire entre 2 fcts"
   else 
     ExprCall(op, retour), toutType l1
 |ExprListe(l) -> let (retour, types) = iterG 
