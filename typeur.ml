@@ -19,9 +19,12 @@ and lvalue =
 | LvalueVar of string
 | LvalueAttr of expr * string
 type typeEl = Any|Nothing|Int64|Bool|String|S of string
-let ex=[DeclExpr
-      (ExprAssignement (LvalueVar "nothing",
-        Some (ExprCst (CInt 0L))))]
+let ex=[DeclFonction ("f", [("x", "Any")], None,
+  ExprListe
+   [ExprAssignement
+     (LvalueAttr (ExprAssignement (LvalueVar "x", None), "a"),
+     None)])]
+
 *)
 open Ast
 type fonction = F of typeEl list*typeEl
@@ -49,8 +52,8 @@ let peutAller a b=(a=Any||b=Any||a=b)
 let vaAller a b=(a=b||a=Any)  (*une fonction de type a et un arg donné b *)
 
 let n=ref 1
-let nouv ()=
-  n:=!n+1;!n
+
+let inf a b = if(a==Any) then b else a
 
 let smodifiable =function
 |Struct(true, _) -> true
@@ -203,7 +206,8 @@ let b,tb=(typageExp context exp2) in
 (if((peutAller ta  Bool)&&(peutAller tb  Bool))then 
 ExprCall(op, [a;b]),Bool
 else (failwith "pas bon type pour l'arithmetique booléenne"))
-|ExprCall(op, l) when(estStruct (Ntmap.find op context)) -> let s =donnestruc(Ntmap.find op context)
+|ExprCall(op, l) when(not (Ntmap.mem op context)) -> failwith "operation inconnue"
+|ExprCall(op, l) when( estStruct (Ntmap.find op context)) -> let s =donnestruc(Ntmap.find op context)
 in let (retour, types) = iterG (*ajouter  *)
   (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, ta::tex)) 
     ([], []) l in
@@ -248,7 +252,7 @@ else failwith "c'est un if mais pas de type bool"
 let vl, tval = typageExp context valeur in
   if(peutAller tEl tval) then
     if(modif) then
-      ExprAssignement(el, Some vl), tEl
+      ExprAssignement(el, Some vl), inf tEl tval
     else
       failwith "structure non mutable"
   else
@@ -259,10 +263,13 @@ and typageLvalue context= function
   let num, tp = recupVariable (Ntmap.find nom context) in
     LvalueVar(nomVariable nom num), tp,modifiable context tp
 | LvalueAttr(gauche, nom) -> let el, tp = typageExp context gauche in
+  if(Ntmap.mem nom !nomChamps)then(
   if(peutAller tp (Ntmap.find nom !nomChamps))then
     LvalueAttr(el, nom), Ntmap.find nom !typeChamps, smodifiable (Ntmap.find nom !tousChamps)
   else 
-    failwith "la structure n'a pas le bon attribut"
+    failwith "la structure n'a pas le bon attribut")
+  else 
+    failwith "attribut introuvable"
 | _ -> failwith "pas le bon type"
 
 let rec calculerRep context = function
