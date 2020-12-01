@@ -61,7 +61,7 @@ let estStruct=function
 |Struct(_)->true
 |_ ->false
 
-let enFonc =function
+let toF =function
 |Fonctions(l) -> l
 |_ -> failwith "pas une fonction "
 
@@ -70,11 +70,6 @@ let toL =function
 
 let first = function
 |(a,b) -> a
-
-let toF=function
-  |Fonctions(l) ->l
-  |_ -> failwith "conflit de noms"
-
 
 (*differentes fonctions de gestion de types, compatibilite, ou obligation 
 plusieurs fonctions sont faites exclusivement pour le dispacher*)
@@ -247,8 +242,8 @@ Les fonctions définies plus haut sont d'une grande aide*)
 |ExprCall(op, l) -> let (retour, types) = iterG (*ajouter  *)
   (fun (ex, tex) x -> let a,ta=(typageExp context x) in (a::ex, ta::tex)) 
     ([], []) l in  
-    let l1 = List.filter (fctCompatible types) (enFonc(Ntmap.find op context))and
-      l2 =List.filter (fctNecessaire types) (enFonc(Ntmap.find op context)) in
+    let l1 = List.filter (fctCompatible types) (toF(Ntmap.find op context))and
+      l2 =List.filter (fctNecessaire types) (toF(Ntmap.find op context)) in
   if(l1=[]) then failwith "pas de fct compatible"
   else if ((List.length l2)>0 && not (meilleur (creerL (List.length (toL(List.hd l2)))) l2)) then
     failwith "choix impossible à faire entre 2 fcts"
