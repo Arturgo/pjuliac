@@ -126,7 +126,7 @@ let rec uniques context = function
 
 let nomVariable nom num=
   if (num<>0)then
-    String.concat "" [nom; Int.to_string num]
+    String.concat "" [nom; string_of_int num]
   else
     nom
 let premier =function
