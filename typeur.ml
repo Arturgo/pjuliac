@@ -19,27 +19,34 @@ and lvalue =
 | LvalueVar of string
 | LvalueAttr of expr * string
 type typeEl = Any|Nothing|Int64|Bool|String|S of string
-let ex=[DeclFonction ("f", [("x", "Any")], None,
+let ex=[DeclFonction ("f", [("n", "Any")], None,
   ExprListe
-   [ExprAssignement
-     (LvalueAttr (ExprAssignement (LvalueVar "x", None), "a"),
-     None)])]
-*)
-open Ast
+   [ExprFor ("n", ExprCst (CInt 1L),
+     ExprAssignement (LvalueVar "n", None),
+     ExprListe
+      [ExprCall ("println",
+        [ExprAssignement (LvalueVar "n", None)])])]);
+ DeclExpr (ExprCall ("f", [ExprCst (CInt 5L)]))]
+
+
+*)open Ast
+
 
 type fonction = F of typeEl list*typeEl
 
-type donne = Struct of bool * typeEl list|Fonctions of fonction list|Variable of int * typeEl 
+type donne = Struct of bool * typeEl list|Fonctions of fonction list|Variable of bool * typeEl *int
 
 module Ntmap = Map.Make(String)
 let tousChamps = ref Ntmap.empty
 let typeChamps = ref Ntmap.empty
 let nomChamps = ref Ntmap.empty
 let typeencours = ref Any
+let glob=ref true
 
 let recupVariable= function
-|Variable(n, tp) -> n, tp
+|Variable(n, tp,num) -> n, tp,num
 |_ -> failwith "fonction non attendue dans Lvalue"
+
 let afficher = function
 |Any->print_string "Any\n"
 |Nothing->print_string "Nothing\n"
@@ -51,9 +58,9 @@ let afficher = function
 let peutAller a b=(a=Any||b=Any||a=b)
 let vaAller a b=(a=b||a=Any)  (*une fonction de type a et un arg donné b *)
 
-let n=ref 1
-
 let inf a b = if(a==Any) then b else a
+let randInt ()=
+  Random.int 10000
 
 let smodifiable =function
 |Struct(true, _) -> true
@@ -117,21 +124,36 @@ let rec uniques context = function
 |(nom, _)::b when(not (Ntmap.mem nom context))-> uniques (Ntmap.add nom "" context) b
 |_ -> failwith "plusieurs fois le même nom"
 
-let nomVariable nom num =
-  if(num=0)then nom
+let nomVariable nom num=
+  if (num<>0)then
+    String.concat "" [nom; Int.to_string num]
   else
-    String.concat "" [nom; string_of_int num]
+    nom
+let premier =function
+|Variable(glob, _,_)->glob
+|_->failwith "pas une variable"
+
+let ajoutV context nom obj=if(Ntmap.mem nom context) then (if !glob||(premier(Ntmap.find nom context)) then
+  Ntmap.add nom (Variable(!glob, obj,  (randInt ()))) context else context)
+  else
+    Ntmap.add nom (Variable(!glob, obj,(randInt ()))) context
+let ajoutV2 context nom obj=if(Ntmap.mem nom context) then (if !glob||(premier(Ntmap.find nom context)) then
+  Ntmap.add nom (Variable(!glob, obj,  0)) context else context)
+  else
+    Ntmap.add nom (Variable(!glob, obj,0)) context
+
 
 let rec ajoutVariables context=function
 |[] -> context
-|(a,b)::l -> ajoutVariables (Ntmap.add a (Variable(!n, (imposerType context (Some b)))) context) l 
+|(a,b)::l -> 
+ajoutVariables (ajoutV2 context a (imposerType context (Some b))) l 
 (** to do ajouter les fcts print, println**)
 
 let rec variablesExpression (context:donne Ntmap.t) = function
 | ExprCall (op, els) -> List.fold_left variablesExpression context els
 | ExprListe(els) -> List.fold_left variablesExpression context els
 | ExprAssignement(LvalueVar(nom), None) -> context
-| ExprAssignement(LvalueVar(nom), Some el) -> variablesExpression (Ntmap.add nom (Variable(!n, Any)) context) el
+| ExprAssignement(LvalueVar(nom), Some el) -> variablesExpression (ajoutV context nom Any) el
 | ExprReturn(Some el) -> variablesExpression context el
 | ExprIfElse(a,b,c) -> List.fold_left variablesExpression context [a;b;c]
 | ExprFor (a,b,c,d) -> List.fold_left variablesExpression context [b;c]
@@ -255,15 +277,16 @@ in let (retour, types) = iterG (*ajouter  *)
 else failwith "c'est un if mais pas de type bool"
 |ExprFor(nom, e1,e2,corps) -> let ee1,b1=typageExp context e1 and ee2,b2=typageExp context e2 in
   if(peutAller b1 Int64 && peutAller b2 Int64) then
-  (incr n;let a=(!n) in
-  let e,t=typageExp (variablesExpression (Ntmap.add nom (Variable (a,Int64)) context) corps) corps in
-    ExprFor(nomVariable nom a, ee1,ee2,e),Nothing
+  (let rep= !glob in glob:=false;let num= (randInt ()) in
+  let e,t=typageExp (variablesExpression (Ntmap.add nom (Variable(false, Int64,num)) context) corps) corps in
+    glob:=rep;ExprFor(nomVariable nom num, ee1,ee2,e),Nothing
   )else
    failwith "iterateurs pas entiers"
 |ExprWhile(condition,corps) -> let el, tp = typageExp context condition in 
-  if(peutAller tp Bool) then 
-    (incr n;let e,t=typageExp (variablesExpression context corps) corps in
-      ExprWhile(el, e), Nothing)
+  if(peutAller tp Bool) then(
+  let rep = !glob in glob:=false; 
+    let e,t=typageExp (variablesExpression context corps) corps in
+      glob:=rep;ExprWhile(el, e), Nothing)
   else
     failwith "condition while pas booléenne"
 |ExprAssignement(lv, None) -> let vl, tval, modif =typageLvalue context lv in
@@ -280,7 +303,7 @@ let vl, tval = typageExp context valeur in
 
 and typageLvalue context= function
 |LvalueVar(nom) when(Ntmap.mem nom context)-> 
-  let num, tp = recupVariable (Ntmap.find nom context) in
+  let gl, tp,num = recupVariable (Ntmap.find nom context) in
     LvalueVar(nomVariable nom num), tp,modifiable context tp
 | LvalueAttr(gauche, nom) -> let el, tp = typageExp context gauche in
   if(Ntmap.mem nom !nomChamps)then(
@@ -295,9 +318,11 @@ and typageLvalue context= function
 let rec calculerRep context = function
 |[] -> []
 |DeclStructure(a,b,c)::l -> (DeclStructure(a,b,c))::(calculerRep context l)
-|DeclFonction(nom, args, types, corps)::l -> typeencours:= imposerType context types;n:=0;
+|DeclFonction(nom, args, types, corps)::l -> typeencours:= imposerType context types;
+glob:=false;
 let c = variablesExpression context corps in 
 let ret, tp = typageExp (ajoutVariables c args) corps in
+glob:=true;
 if(peutAller tp !typeencours) then (typeencours:=Any;
 (DeclFonction(nom, args, types, ret))::(calculerRep context l))
 else 
@@ -309,6 +334,6 @@ tousChamps := Ntmap.empty;
  typeChamps := Ntmap.empty;
  nomChamps := Ntmap.empty;
  typeencours := Any;
-  n:=0;
-  let contextGeneral1 = Ntmap.add "nothing" (Variable (0,Nothing)) (calculerContext1  Ntmap.empty arbre) in
-  calculerRep contextGeneral1 arbre
+  let contextGeneral1 = Ntmap.add "nothing" (Variable (true,Nothing, 0)) (calculerContext1  Ntmap.empty arbre) in
+  let rep = calculerRep contextGeneral1 arbre in
+  (*assert(rep=arbre);*)rep
