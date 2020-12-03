@@ -1,3 +1,8 @@
+clean:
+	rm _build -r || true
+	rm pjuliac || true
+	rm Tests/pjuliac || true
+
 all:
 	rm _build -r || true
 	mkdir _build
