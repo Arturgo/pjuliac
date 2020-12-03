@@ -1,10 +1,5 @@
-clean:
-	rm _build -r || true
-	rm pjuliac || true
-	rm Tests/pjuliac || true
-
 all:
-	rm _build -r || true
+	-rm _build -r
 	mkdir _build
 	cp *.mly _build/
 	cp *.mll _build/
@@ -33,3 +28,9 @@ all:
 	ocamlopt -o pjuliac ast.cmx lexer.cmx parser.cmx typeur.cmx x86_64.cmx codegen.cmx julia.cmx; \
 	cp pjuliac ../pjuliac; \
 	cp pjuliac ../Tests/pjuliac
+	
+.PHONY : clean
+clean:
+	-rm _build -r
+	-rm pjuliac
+	-rm Tests/pjuliac
