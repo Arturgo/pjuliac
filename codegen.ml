@@ -28,17 +28,12 @@ let parse_str str =
    let buf = Lexing.from_string str in
    parse buf
 
-
-
-
-
-
 module Smap = Map.Make(String)
 
 let globals = ref Smap.empty
 let () = globals := Smap.add "nothing" (ind r14 ~ofs:(-8)) !globals
 
-type fct = {signature: string list; corps: [ `text ] X86_64.asm}
+type fct = {signature: string list; retour: string; corps: [ `text ] X86_64.asm}
 
 let dispatchers = ref Smap.empty
 
@@ -76,11 +71,16 @@ end
 
 # elements types
 
-function __arg(x)
+function __undefined__uncheck() 
+	__print_string(\"erreur: une variable est utilisee sans etre initialisee\\n\")
+	__exit()
+end
+
+function __arg(x :: Int64)
    return __deref(__access(x))
 end
 
-function __non(x)
+function __non(x :: Bool)
    __non__uncheck(x)
 end
 
@@ -92,23 +92,23 @@ function __diff(x, y)
    !(x == y)
 end
 
-function __sup(x, y)
+function __sup(x :: Int64, y :: Int64)
    y < x
 end
 
-function __infegal(x, y)
+function __infegal(x :: Int64, y :: Int64)
    !(x > y)
 end
 
-function __supegal(x, y)
+function __supegal(x :: Int64, y :: Int64)
    !(x < y)
 end
 
-function __umoins(x)
+function __umoins(x :: Int64)
    0 - x
 end
 
-function __puis(x, y)
+function __puis(x :: Int64, y :: Int64)
    prod = 1
    for i = 1 : y
       prod = x * prod
@@ -116,7 +116,7 @@ function __puis(x, y)
    return prod
 end
 
-function div(x, y)
+function div(x :: Int64, y :: Int64)
    if y == 0
       __print_string(\"erreur: division par zero\\n\")
       __exit()
@@ -129,7 +129,7 @@ function div(x, y)
    end
 end
 
-function mod(x, y)
+function mod(x :: Int64, y :: Int64)
    if y == 0
       __print_string(\"erreur: division par zero\\n\")
       __exit()
@@ -260,6 +260,8 @@ begin
    
    (match value with
    | None -> movq position !%rax
+		++ testq !%rax !%rax
+		++ jz "__fun___undefined__uncheck"
    | Some expr -> (
       code_expr vars expr
       ++ movq !%rax position
@@ -506,7 +508,10 @@ let code_fct args body =
    
    pushq !%rbp
    ++ movq !%rsp !%rbp
-   ++ subq (imm (8 * nb_vars)) !%rsp
+   
+ 	++ (List.fold_left (++) nop (list_init
+ 		nb_vars (fun x -> pushq (imm 0))
+ 	))
    
    (* Place __nb_args et __args_p *)
    ++ set_int !%r13
@@ -543,19 +548,44 @@ let check_sig s =
       (String.concat " && " conditions)
       ^ ")"
 
+let rec	 is_specialised f1 f2 = match f1, f2 with
+| [], [] -> true
+| x1 :: r1, x2 :: r2 -> (x1 = "Any" || x1 = x2) && is_specialised r1 r2
+| _ -> false
+
 let jl_dispatch l =
    let tab = Array.of_list l in
    
    let julia = ref "" in
    
    for i = 0 to (Array.length tab) - 1 do
-      let curFct = tab.(i) in
-      julia := !julia ^ "if (" ^ (check_sig curFct.signature) ^ ") __func_id = " ^ (string_of_int (1 + i)) ^ "; end\n"
+   	let specialisation = ref "" in
+   	let curFct = tab.(i) in
+   	
+   	for j = 0 to i - 1 do
+   		let precFct = tab.(j) in
+   		
+   		if is_specialised precFct.signature curFct.signature then
+   			specialisation := !specialisation ^ "if __egal__uncheck(__func_id, " ^ (string_of_int (j + 1)) ^ ") __func_id = 0; end\n"
+   	done;
+      
+      julia := !julia ^ "if (" ^ (check_sig curFct.signature) ^ ") 
+      " ^
+      	!specialisation
+      ^
+      "
+      if __egal__uncheck(__func_id, 0) 
+      	__func_id = " ^ (string_of_int (i + 1)) ^ "
+     	else
+     		__print_string(\"erreur: appel ambigu a une fonction\\n\")
+     		__exit()
+     	end
+      end\n"
    done;
    
    !julia
 
-let code_dispatch name l =
+let code_dispatch name l = 
    (* Exceptions *)
    if Filename.check_suffix name "__uncheck" || name = "__fun___arg" || name = "__fun_print" || name = "__fun_println" then (
       (*print_string name;*)
@@ -575,13 +605,23 @@ let code_dispatch name l =
          (jl_dispatch l)
         ^
          (List.fold_left (^) "" (List.mapi (fun i f ->
-            "if __egal__uncheck(__func_id, " ^ (string_of_int (1 + i)) ^ ") return __func_" ^ name ^ (string_of_int (1 + i)) ^ "(" ^
+            "if __egal__uncheck(__func_id, " ^ (string_of_int (1 + i)) ^ ") __ret = __func_" ^ name ^ (string_of_int (1 + i)) ^ "(" ^
             String.concat "," ( list_init (List.length f.signature) string_arg)
-            ^ "); end\n"
+            ^ ")
+            " ^ (if f.retour <> "Any" then "if __egal__uncheck(typeof(__ret), " ^ f.retour ^ ")
+            		return __ret
+           		else
+           			__print_string(\"erreur: mauvaise valeur de retour pour " ^ name ^ "\\n\")
+           			__exit()
+           		end
+           		"
+           	else "return __ret")
+           	^ "
+            end\n"
          ) l))
         ^ "
         if __egal__uncheck(__func_id, 0)
-            __print_string(\"erreur: parametres incorrects\\n\")
+            __print_string(\"erreur: parametres incorrects pour " ^ name ^ "\\n\")
             __exit()
         end
       end
@@ -614,7 +654,10 @@ let rec loop_fcts = function
          
          dispatchers :=
             Smap.add ("__fun_" ^ nom) (
-               {signature = (List.map snd args); corps = corps}
+               {signature = (List.map snd args); retour = (match t with
+		            | None -> "Any"
+		            | Some e -> e
+               ); corps = corps}
                :: (try
                   Smap.find ("__fun_" ^ nom) !dispatchers
                with Not_found -> []) 
@@ -680,7 +723,10 @@ let code_fichier f =
    
    (* Début des variables globales *)
    ++ movq !%rsp !%r14
-   ++ subq (imm (8 * (Smap.cardinal !globals))) !%rsp
+   
+ 	++ (List.fold_left (++) nop (list_init
+ 		(Smap.cardinal !globals) (fun x -> pushq (imm 0))
+ 	))
    
    (* Création du nothing *)
    ++ set_nothing ()

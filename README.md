@@ -33,7 +33,7 @@ L’autre difficulté a été sur les variables globales et locales.  Nous pensi
 
 ## Production du code :
 
-C'est en bonne voie, mais pas tout à fait terminé, il reste à gérer la plupart des erreurs (notamment pour les variables non-définies). Nous passons tous les tests d'exécutions valides sauf un.
+C'est en bonne voie, mais pas tout à fait terminé, il reste à gérer certaines erreurs. Nous passons tous les tests d'exécutions valides sauf un (queens.jl car il nous coûte trop de mémoire).
 Comme le typage est par essence incalculable, toutes les vérifications sur les types doivent être refaites lors de l'exécution, c'est pourquoi nous avons décidé de ne pas nous servir de l'information générée lors du typage à l'exception du calcul de la portée des variables.
 Nous essayons d'écrire le moins de code possible en assembleur, et le plus possible en Julia, c'est pourquoi nous avons développé un système d'arithmétique de pointeurs pour la gestion des objets, des fonctions variadiques, et du dispatch multiple.
 
