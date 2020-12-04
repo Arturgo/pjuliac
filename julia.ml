@@ -26,7 +26,7 @@ let buf = Lexing.from_channel f
 let ast = try 
    Codegen.parse buf
 with 
-| _ -> (Format.printf "File \"%s\", line %d, characters %d-%d:\n syntax error" !filename buf.lex_curr_p.pos_lnum
+| _ -> (Format.printf "File \"%s\", line %d, characters %d-%d:\n syntax error\n" !filename buf.lex_curr_p.pos_lnum
 (buf.lex_start_p.pos_cnum - buf.lex_start_p.pos_bol)
 (buf.lex_curr_p.pos_cnum - buf.lex_curr_p.pos_bol); exit 1)
 
@@ -35,7 +35,7 @@ let () = if !parse_only then exit 0
 let ast = try
    calculerTypage ast
 with
-| Failure(s) -> (Format.printf "%s\n" s; exit 1)
+| Failure(s) -> (Format.printf "File \"%s\", line 1, characters 1-1:\n%s\n" !filename s; exit 1)
 
 let () = if !type_only then exit 0
 
