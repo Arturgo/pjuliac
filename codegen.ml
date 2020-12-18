@@ -62,15 +62,15 @@ function __non__uncheck(x)
 end
 
 function __egal__uncheck(x, y)
-   __non__uncheck(x - y)
+   __non__uncheck(__moins_int(x, y))
 end
-
-# elements types
 
 function __undefined__uncheck() 
 	__print_string(\"erreur: une variable est utilisee sans etre initialisee\\n\")
 	__exit()
 end
+
+# elements types
 
 function __arg(x :: Int64)
    return __deref(__access(x))
@@ -80,12 +80,34 @@ function __non(x :: Bool)
    __non__uncheck(x)
 end
 
+function __plus(x :: Int64, y :: Int64)
+	__plus_int(x, y)
+end
+
+function __moins(x :: Int64, y :: Int64)
+	__moins_int(x, y)
+end
+
+function __fois(x :: Int64, y :: Int64)
+	__fois_int(x, y)
+end
+
+
 function __egal(x, y)
+	if __egal__uncheck(typeof(x), 0) && __egal__uncheck(typeof(y), 0)
+		return true
+	end
+	
    __egal__uncheck(x, y)
 end
 
+
 function __diff(x, y)
    !(x == y)
+end
+
+function __inf(x :: Int64, y :: Int64)
+   __inf_int(x, y)
 end
 
 function __sup(x :: Int64, y :: Int64)
@@ -380,7 +402,7 @@ let library () =
    ++ set_int !%rbx
    ++ ret
    
-   (* Dereferencing pointers *)
+   (* Dereferencing pointers : not called by user *)
 
    ++ label "__fun___deref"
    ++ movq (ind rsp ~ofs:(8)) !%rax
@@ -407,6 +429,8 @@ let library () =
    ++ movq !%rcx (ind rbx ~ofs:(0))
    ++ ret
    
+   (* Exit function : not called by user *)
+   
    ++ label "__fun___exit"
    ++ movq (imm 1) !%rax
    ++ movq (imm 1) !%rbx
@@ -431,21 +455,21 @@ let library () =
    ++ ret
    
    (* Operators *)   
-   ++ label "__fun___plus"
+   ++ label "__fun___plus_int"
    ++ get_int (ind rsp ~ofs:(8)) !%rbx
    ++ get_int (ind rsp ~ofs:(16)) !%rcx
    ++ addq !%rbx !%rcx
    ++ set_int !%rcx
    ++ ret
    
-   ++ label "__fun___moins"
+   ++ label "__fun___moins_int"
    ++ get_int (ind rsp ~ofs:(8)) !%rcx
    ++ get_int (ind rsp ~ofs:(16)) !%rbx
    ++ subq !%rbx !%rcx
    ++ set_int !%rcx
    ++ ret
    
-   ++ label "__fun___fois"
+   ++ label "__fun___fois_int"
    ++ get_int (ind rsp ~ofs:(8)) !%rcx
    ++ get_int (ind rsp ~ofs:(16)) !%rbx
    ++ imulq !%rbx !%rcx
@@ -469,7 +493,7 @@ let library () =
    ++ set_int !%rdx
    ++ ret
 
-   ++ label "__fun___inf"
+   ++ label "__fun___inf_int"
    ++ get_int (ind rsp ~ofs:(8)) !%rcx
    ++ get_int (ind rsp ~ofs:(16)) !%rbx
    ++ cmpq !%rbx !%rcx
@@ -527,7 +551,7 @@ let code_fct args body =
    ++ ret
 
 let string_arg i =
-   "__arg(__args_p + " ^ (string_of_int (8 * i)) ^ ")"
+   "__arg(__plus_int(__args_p, " ^ (string_of_int (8 * i)) ^ "))"
 
 let check_sig s =
    let rec loop i = function
