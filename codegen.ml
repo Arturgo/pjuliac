@@ -61,6 +61,45 @@ let () = types := Smap.add "String" 3 !types
 
 let getters = ref ""
 
+(* "get_int" a pour argument une adresse "addr" sous la forme d'une opérande asm et met le booléen contenu dans l'objet pointé dans le registre "reg" *)
+
+let get_int addr reg =
+   movq addr !%r8
+   ++ movq (ind r8 ~ofs:(8)) reg
+
+(* "get_bool" a pour argument une adresse "addr" sous la forme d'une opérande asm et met l'entier contenu dans l'objet pointé dans le registre "reg" *)
+
+let get_bool addr reg =
+   movq addr !%r8
+   ++ movq (ind r8 ~ofs:(8)) reg
+
+(* "set_nothing" crée un objet de type nothing, et met son pointeur dans "rax" *)
+
+let set_nothing () =
+   movq (imm 8) !%rdi
+   ++ call "malloc"
+   ++ movq (imm 0) (ind rax ~ofs:(0))
+   
+(* "set_int" crée un objet entier contenant l'opérande asm "code", et met son pointeur dans "rax" *)
+
+let set_int code =
+   movq (imm 16) !%rdi
+   ++ pushq code
+   ++ call "malloc"
+   ++ popq rdx
+   ++ movq (imm 1) (ind rax ~ofs:(0))
+   ++ movq !%rdx (ind rax ~ofs:(8))
+
+(* "set_bool" crée un objet booléen contenant l'opérande asm "code", et met son pointeur dans "rax" *)
+
+let set_bool code =
+   movq (imm 16) !%rdi
+   ++ pushq code
+   ++ call "malloc"
+   ++ popq rdx
+   ++ movq (imm 2) (ind rax ~ofs:(0))
+   ++ movq !%rdx (ind rax ~ofs:(8))
+
 (* "library" contient les fonctions assembleurs de base.
 Dans le code généré, l'étiquette d'une fonction est préfixée de "__fun_" *)
 
@@ -346,45 +385,6 @@ let label_id = ref 0
 let new_label () =
    label_id := 1 + !label_id;
    "__lbl_" ^ (string_of_int !label_id)
-
-(* "get_int" a pour argument une adresse "addr" sous la forme d'une opérande asm et met le booléen contenu dans l'objet pointé dans le registre "reg" *)
-
-let get_int addr reg =
-   movq addr !%r8
-   ++ movq (ind r8 ~ofs:(8)) reg
-
-(* "get_bool" a pour argument une adresse "addr" sous la forme d'une opérande asm et met l'entier contenu dans l'objet pointé dans le registre "reg" *)
-
-let get_bool addr reg =
-   movq addr !%r8
-   ++ movq (ind r8 ~ofs:(8)) reg
-
-(* "set_nothing" crée un objet de type nothing, et met son pointeur dans "rax" *)
-
-let set_nothing () =
-   movq (imm 8) !%rdi
-   ++ call "malloc"
-   ++ movq (imm 0) (ind rax ~ofs:(0))
-   
-(* "set_int" crée un objet entier contenant l'opérande asm "code", et met son pointeur dans "rax" *)
-
-let set_int code =
-   movq (imm 16) !%rdi
-   ++ pushq code
-   ++ call "malloc"
-   ++ popq rdx
-   ++ movq (imm 1) (ind rax ~ofs:(0))
-   ++ movq !%rdx (ind rax ~ofs:(8))
-
-(* "set_bool" crée un objet booléen contenant l'opérande asm "code", et met son pointeur dans "rax" *)
-
-let set_bool code =
-   movq (imm 16) !%rdi
-   ++ pushq code
-   ++ call "malloc"
-   ++ popq rdx
-   ++ movq (imm 2) (ind rax ~ofs:(0))
-   ++ movq !%rdx (ind rax ~ofs:(8))
 
 let rec code_expr vars = function
 | ExprCst(cst) -> (let label_name = "__cst_" ^ string_of_int !iCst in
