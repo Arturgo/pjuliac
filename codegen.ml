@@ -98,7 +98,11 @@ function __egal(x, y)
 		return true
 	end
 	
-   __egal__uncheck(x, y)
+	if (__egal__uncheck(typeof(x), 1) || __egal__uncheck(typeof(x), 2)) && (__egal__uncheck(typeof(y), 1) || __egal__uncheck(typeof(y), 2))
+		return __egal__uncheck(x, y)
+	end
+	
+   __egal__uncheck(__ref(x), __ref(y))
 end
 
 
