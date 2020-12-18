@@ -6,6 +6,14 @@ open Scanf
 open Format
 open Filename
 
+(*
+Types : 0 : nothing, 1 : int, 2 : bool, 3 : string
+Registes : 
+   r14 : variables globales
+   r13 : argument des fonctions variadiques
+   rax : valeur de retour
+   <= r12 : réservé pour les utilitaires *)
+
 let list_init n f =
    let rec loop i =
       if i = n then []
@@ -41,14 +49,149 @@ type var_manager =
 | Global
 | Local of (pos_t Smap.t) * (pos_t Smap.t)
 
-let types = ref Smap.empty
-let getters = ref ""
+(* On associe à chaque type un identifiant unique, dans la map "types" *)
 
+let types = ref Smap.empty
 let () = types := Smap.add "Nothing" 0 !types
 let () = types := Smap.add "Int64" 1 !types
 let () = types := Smap.add "Bool" 2 !types
 let () = types := Smap.add "String" 3 !types
 
+(* "getters" contient le code julia généré pour les getters, ie les fonctions pour accéder aux champs des structures *)
+
+let getters = ref ""
+
+(* "library" contient les fonctions assembleurs de base.
+Dans le code généré, l'étiquette d'une fonction est préfixée de "__fun_" *)
+
+let library () =
+   (* "typeof" renvoie un entier : le type de l'objet passé en paramètre *)
+   label "__fun_typeof"
+   ++ movq (ind rsp ~ofs:(8)) !%r8
+   ++ movq (ind r8 ~ofs:(0)) !%rbx
+   ++ set_int !%rbx
+   ++ ret
+   
+   (* Dereferencing pointers : not called by user *)
+
+   ++ label "__fun___deref"
+   ++ movq (ind rsp ~ofs:(8)) !%rax
+   ++ movq (ind rax ~ofs:(8)) !%rax
+   ++ ret
+   
+   (* "__ref" renvoie un entier : l'adresse de l'objet passé en paramètre *)
+   
+   ++ label "__fun___ref"
+   ++ movq (ind rsp ~ofs:(8)) !%rbx
+   ++ set_int !%rbx
+   ++ ret
+   
+   ++ label "__fun___access"
+   ++ movq (ind rsp ~ofs:(8)) !%rbx
+   ++ get_int !%rbx !%rbx
+   ++ movq (ind rbx ~ofs:(0)) !%rbx
+   ++ set_int !%rbx
+   ++ ret
+   
+   ++ label "__fun___modify"
+   ++ movq (ind rsp ~ofs:(8)) !%rbx
+   ++ get_int !%rbx !%rbx
+   ++ movq (ind rsp ~ofs:(16)) !%rcx
+   ++ get_int !%rcx !%rcx
+   ++ movq !%rcx (ind rbx ~ofs:(0))
+   ++ ret
+   
+   (* "__exit" sort du programme avec le code d'erreur 1 *)
+   
+   ++ label "__fun___exit"
+   ++ movq (imm 1) !%rax
+   ++ movq (imm 1) !%rbx
+   ++ syscall
+
+	(* TODO : Gérer l'alignement des printf *)
+   (* "__print_int" affiche l'entier passé en paramètre *)
+   
+   ++ label "__fun___print_int"
+   ++ movq (ilab "int_format") !%rdi
+   ++ get_int (ind rsp ~ofs:(8)) !%rsi
+   ++ xorq !%rax !%rax
+   ++ call "printf"
+   ++ ret
+   
+   (* "__print_string" affiche la chaîne de caractères passée en paramètre *)
+   
+   ++ label "__fun___print_string"
+   ++ movq (ilab "string_format") !%rdi
+   ++ movq (ind rsp ~ofs:(8)) !%r8
+   ++ leaq (ind r8 ~ofs:(16)) rsi
+   ++ xorq !%rax !%rax
+   ++ call "printf"
+   ++ ret
+   
+   (* "__plus_int" renvoie la somme des deux entiers passés en paramètres *)
+     
+   ++ label "__fun___plus_int"
+   ++ get_int (ind rsp ~ofs:(8)) !%rbx
+   ++ get_int (ind rsp ~ofs:(16)) !%rcx
+   ++ addq !%rbx !%rcx
+   ++ set_int !%rcx
+   ++ ret
+   
+   (* "__moins_int" renvoie la différence des deux entiers passés en paramètres *)
+   
+   ++ label "__fun___moins_int"
+   ++ get_int (ind rsp ~ofs:(8)) !%rcx
+   ++ get_int (ind rsp ~ofs:(16)) !%rbx
+   ++ subq !%rbx !%rcx
+   ++ set_int !%rcx
+   ++ ret
+   
+   (* "__fois_int" renvoie le produit des deux entiers passés en paramètres *)
+   
+   ++ label "__fun___fois_int"
+   ++ get_int (ind rsp ~ofs:(8)) !%rcx
+   ++ get_int (ind rsp ~ofs:(16)) !%rbx
+   ++ imulq !%rbx !%rcx
+   ++ set_int !%rcx
+   ++ ret
+   
+   ++ label "__fun___div_pos"
+   ++ get_int (ind rsp ~ofs:(8)) !%rax
+   ++ get_int (ind rsp ~ofs:(16)) !%r9
+   ++ movq (imm 0) !%rdx
+   ++ idivq !%r9
+   ++ movq !%rax !%rbx
+   ++ set_int !%rbx
+   ++ ret
+   
+   ++ label "__fun___mod_pos"
+   ++ get_int (ind rsp ~ofs:(8)) !%rax
+   ++ get_int (ind rsp ~ofs:(16)) !%r9
+   ++ movq (imm 0) !%rdx
+   ++ idivq !%r9
+   ++ set_int !%rdx
+   ++ ret
+
+   ++ label "__fun___inf_int"
+   ++ get_int (ind rsp ~ofs:(8)) !%rcx
+   ++ get_int (ind rsp ~ofs:(16)) !%rbx
+   ++ cmpq !%rbx !%rcx
+   ++ jl "__inf_true"
+   ++ set_bool (imm 0)
+   ++ ret
+   ++ label "__inf_true"
+   ++ set_bool (imm 1)
+   ++ ret
+   
+   (* "__malloc" prend en paramètre un entier "size" et renvoie un entier : l'adresse d'un bloc mémoire libre de taille "size" *)
+   
+   ++ label "__fun___malloc"
+   ++ get_int (ind rsp ~ofs:(8)) !%rdi
+   ++ call "malloc"
+   ++ set_int !%rax
+   ++ ret
+
+(* "standard_library" contient le code julia de l'interface entre les quelques fonctions codées en assembleur avec le reste des codes générés *)
 
 let standard_library = "
 # elements non types
@@ -194,34 +337,37 @@ function println()
 end
 "
 
-(*
-Types : 0 : nothing, 1 : int, 2 : bool, 3 : string
-Registes : 
-   r14 : variables globales
-   r13 : argument des fonctions variadiques
-   rax : valeur de retour
-   <= r12 : réservé pour les utilitaires *)
+(* "label_id" contient le nombre d'étiquettes asm crées jusqu'à présent *)
 
 let label_id = ref 0
+
+(* "new_label" renvoie une nouvelle étiquette asm *)
 
 let new_label () =
    label_id := 1 + !label_id;
    "__lbl_" ^ (string_of_int !label_id)
 
-(* Utilitaires *)
+(* "get_int" a pour argument une adresse "addr" sous la forme d'une opérande asm et met le booléen contenu dans l'objet pointé dans le registre "reg" *)
+
 let get_int addr reg =
    movq addr !%r8
    ++ movq (ind r8 ~ofs:(8)) reg
 
+(* "get_bool" a pour argument une adresse "addr" sous la forme d'une opérande asm et met l'entier contenu dans l'objet pointé dans le registre "reg" *)
+
 let get_bool addr reg =
    movq addr !%r8
    ++ movq (ind r8 ~ofs:(8)) reg
-   
+
+(* "set_nothing" crée un objet de type nothing, et met son pointeur dans "rax" *)
+
 let set_nothing () =
    movq (imm 8) !%rdi
    ++ call "malloc"
    ++ movq (imm 0) (ind rax ~ofs:(0))
    
+(* "set_int" crée un objet entier contenant l'opérande asm "code", et met son pointeur dans "rax" *)
+
 let set_int code =
    movq (imm 16) !%rdi
    ++ pushq code
@@ -229,6 +375,8 @@ let set_int code =
    ++ popq rdx
    ++ movq (imm 1) (ind rax ~ofs:(0))
    ++ movq !%rdx (ind rax ~ofs:(8))
+
+(* "set_bool" crée un objet booléen contenant l'opérande asm "code", et met son pointeur dans "rax" *)
 
 let set_bool code =
    movq (imm 16) !%rdi
@@ -397,122 +545,6 @@ end
    ++ popq rbp
    ++ ret
 | _ -> nop
-
-let library () =
-   (* Typeof function *)
-   label "__fun_typeof"
-   ++ movq (ind rsp ~ofs:(8)) !%r8
-   ++ movq (ind r8 ~ofs:(0)) !%rbx
-   ++ set_int !%rbx
-   ++ ret
-   
-   (* Dereferencing pointers : not called by user *)
-
-   ++ label "__fun___deref"
-   ++ movq (ind rsp ~ofs:(8)) !%rax
-   ++ movq (ind rax ~ofs:(8)) !%rax
-   ++ ret
-   
-   ++ label "__fun___ref"
-   ++ movq (ind rsp ~ofs:(8)) !%rbx
-   ++ set_int !%rbx
-   ++ ret
-   
-   ++ label "__fun___access"
-   ++ movq (ind rsp ~ofs:(8)) !%rbx
-   ++ get_int !%rbx !%rbx
-   ++ movq (ind rbx ~ofs:(0)) !%rbx
-   ++ set_int !%rbx
-   ++ ret
-   
-   ++ label "__fun___modify"
-   ++ movq (ind rsp ~ofs:(8)) !%rbx
-   ++ get_int !%rbx !%rbx
-   ++ movq (ind rsp ~ofs:(16)) !%rcx
-   ++ get_int !%rcx !%rcx
-   ++ movq !%rcx (ind rbx ~ofs:(0))
-   ++ ret
-   
-   (* Exit function : not called by user *)
-   
-   ++ label "__fun___exit"
-   ++ movq (imm 1) !%rax
-   ++ movq (imm 1) !%rbx
-   ++ syscall
-
-   (* Print functions *)
-   
-   (* TODO : Gérer l'alignement des printf *)
-   ++ label "__fun___print_int"
-   ++ movq (ilab "int_format") !%rdi
-   ++ get_int (ind rsp ~ofs:(8)) !%rsi
-   ++ xorq !%rax !%rax
-   ++ call "printf"
-   ++ ret
-   
-   ++ label "__fun___print_string"
-   ++ movq (ilab "string_format") !%rdi
-   ++ movq (ind rsp ~ofs:(8)) !%r8
-   ++ leaq (ind r8 ~ofs:(16)) rsi
-   ++ xorq !%rax !%rax
-   ++ call "printf"
-   ++ ret
-   
-   (* Operators *)   
-   ++ label "__fun___plus_int"
-   ++ get_int (ind rsp ~ofs:(8)) !%rbx
-   ++ get_int (ind rsp ~ofs:(16)) !%rcx
-   ++ addq !%rbx !%rcx
-   ++ set_int !%rcx
-   ++ ret
-   
-   ++ label "__fun___moins_int"
-   ++ get_int (ind rsp ~ofs:(8)) !%rcx
-   ++ get_int (ind rsp ~ofs:(16)) !%rbx
-   ++ subq !%rbx !%rcx
-   ++ set_int !%rcx
-   ++ ret
-   
-   ++ label "__fun___fois_int"
-   ++ get_int (ind rsp ~ofs:(8)) !%rcx
-   ++ get_int (ind rsp ~ofs:(16)) !%rbx
-   ++ imulq !%rbx !%rcx
-   ++ set_int !%rcx
-   ++ ret
-   
-   ++ label "__fun___div_pos"
-   ++ get_int (ind rsp ~ofs:(8)) !%rax
-   ++ get_int (ind rsp ~ofs:(16)) !%r9
-   ++ movq (imm 0) !%rdx
-   ++ idivq !%r9
-   ++ movq !%rax !%rbx
-   ++ set_int !%rbx
-   ++ ret
-   
-   ++ label "__fun___mod_pos"
-   ++ get_int (ind rsp ~ofs:(8)) !%rax
-   ++ get_int (ind rsp ~ofs:(16)) !%r9
-   ++ movq (imm 0) !%rdx
-   ++ idivq !%r9
-   ++ set_int !%rdx
-   ++ ret
-
-   ++ label "__fun___inf_int"
-   ++ get_int (ind rsp ~ofs:(8)) !%rcx
-   ++ get_int (ind rsp ~ofs:(16)) !%rbx
-   ++ cmpq !%rbx !%rcx
-   ++ jl "__inf_true"
-   ++ set_bool (imm 0)
-   ++ ret
-   ++ label "__inf_true"
-   ++ set_bool (imm 1)
-   ++ ret
-   
-   ++ label "__fun___malloc"
-   ++ get_int (ind rsp ~ofs:(8)) !%rdi
-   ++ call "malloc"
-   ++ set_int !%rax
-   ++ ret
 
 let code_fct args body =
    let args_p = ref Smap.empty in
