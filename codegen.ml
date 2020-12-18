@@ -6,10 +6,6 @@ open Scanf
 open Format
 open Filename
 
-
-(* TODO : réparer l'arithmétique pour la division entre nombres négatifs *)
-
-
 let list_init n f =
    let rec loop i =
       if i = n then []
@@ -236,36 +232,42 @@ let rec code_expr vars = function
 )
 | ExprAssignement(LvalueVar(name), value) ->
 begin
-   let position = (match !vars with
-   | Global -> 
-      if (Smap.mem name !globals) then
-         Smap.find name !globals
-      else (
-         globals := Smap.add name (ind r14 ~ofs:(-8 * (1 + Smap.cardinal !globals))) !globals;
-         Smap.find name !globals
-      )
-   | Local(args, locals) ->
-      if (Smap.mem name args)  then
-         Smap.find name args
-      else if (Smap.mem name locals) then
-         Smap.find name locals
-      else if value = None && Smap.mem name !globals then
-         Smap.find name !globals
-      else (
-         let nouv_pos = (ind rbp ~ofs:(-8 * (1 + Smap.cardinal locals))) in
-         vars := (Local(args, Smap.add name nouv_pos locals));
-         nouv_pos
-      )
-   ) in
-   
-   (match value with
-   | None -> movq position !%rax
-		++ testq !%rax !%rax
-		++ jz "__fun___undefined__uncheck"
-   | Some expr -> (
-      code_expr vars expr
-      ++ movq !%rax position
-   )
+	if name = "__nb_args" then
+		set_int (ind rbp ~ofs:(-16))
+	else if name = "__args_p" then
+		set_int (ind rbp ~ofs:(-8))
+	else (
+		let position = (match !vars with
+		| Global -> 
+		   if (Smap.mem name !globals) then
+		      Smap.find name !globals
+		   else (
+		      globals := Smap.add name (ind r14 ~ofs:(-8 * (1 + Smap.cardinal !globals))) !globals;
+		      Smap.find name !globals
+		   )
+		| Local(args, locals) ->
+		   if (Smap.mem name args)  then
+		      Smap.find name args
+		   else if (Smap.mem name locals) then
+		      Smap.find name locals
+		   else if value = None && Smap.mem name !globals then
+		      Smap.find name !globals
+		   else (
+		      let nouv_pos = (ind rbp ~ofs:(-8 * (1 + Smap.cardinal locals))) in
+		      vars := (Local(args, Smap.add name nouv_pos locals));
+		      nouv_pos
+		   )
+		) in
+		
+		(match value with
+		| None -> movq position !%rax
+			++ testq !%rax !%rax
+			++ jz "__fun___undefined__uncheck"
+		| Some expr -> (
+		   code_expr vars expr
+		   ++ movq !%rax position
+			)
+   	)
    )
 end
 | ExprAssignement(LvalueAttr(expr, attr), value) ->
@@ -514,11 +516,9 @@ let code_fct args body =
  	))
    
    (* Place __nb_args et __args_p *)
-   ++ set_int !%r13
-   ++ movq !%rax (ind rbp ~ofs:(-16))
+   ++ movq !%r13 (ind rbp ~ofs:(-16))
    ++ leaq (ind rbp ~ofs:(16)) rbx
-   ++ set_int !%rbx
-   ++ movq !%rax (ind rbp ~ofs:(-8))
+   ++ movq !%rbx (ind rbp ~ofs:(-8))
    
    ++ code_fonction
    
