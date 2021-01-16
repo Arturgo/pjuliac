@@ -6,19 +6,15 @@ open Scanf
 open Format
 open Filename
 
-(*
-Types : 0 : nothing, 1 : int, 2 : bool, 3 : string
-Registes : 
-   r14 : variables globales
-   r13 : argument des fonctions variadiques
-   rax : valeur de retour
-   <= r12 : réservé pour les utilitaires *)
+(* "list_init" est équivalent à List.init, n'existe pas dans ma version de Ocaml *)
 
 let list_init n f =
    let rec loop i =
       if i = n then []
       else (f i) :: (loop (i + 1))
    in loop 0
+
+(* "list_count" compte le nombre d'éléments égaux à e dans une liste *)
 
 let rec list_count e = function 
 | [] -> 0
@@ -34,9 +30,11 @@ let parse_str str =
 
 module Smap = Map.Make(String)
 
+(* Contient les addresses des variables globales. *)
 let globals = ref Smap.empty
 let () = globals := Smap.add "nothing" (ind r14 ~ofs:(-8)) !globals
 
+(* Type d'une fonction : contient la signature, le type de retour, et son code assembleur. *)
 type fct = {signature: string list; retour: string; corps: [ `text ] X86_64.asm}
 
 let dispatchers = ref Smap.empty
@@ -49,7 +47,7 @@ type var_manager =
 | Global
 | Local of (pos_t Smap.t) * (pos_t Smap.t)
 
-(* On associe à chaque type un identifiant unique, dans la map "types" *)
+(* On associe à chaque type/structure un identifiant unique, dans la map "types" *)
 
 let types = ref Smap.empty
 let () = types := Smap.add "Nothing" 0 !types
@@ -111,7 +109,7 @@ let library () =
    ++ set_int !%rbx
    ++ ret
    
-   (* Dereferencing pointers : not called by user *)
+   (* "__deref" prend un pointeur et renvoie l'objet contenu à cette adresse. *)
 
    ++ label "__fun___deref"
    ++ movq (ind rsp ~ofs:(8)) !%rax
@@ -125,12 +123,16 @@ let library () =
    ++ set_int !%rbx
    ++ ret
    
+   (* "__access" permet de lire à n'importe quelle position de la RAM. *)
+   
    ++ label "__fun___access"
    ++ movq (ind rsp ~ofs:(8)) !%rbx
    ++ get_int !%rbx !%rbx
    ++ movq (ind rbx ~ofs:(0)) !%rbx
    ++ set_int !%rbx
    ++ ret
+   
+   (* "__modify" permet de modifier n'importe quelle position RAM. *)
    
    ++ label "__fun___modify"
    ++ movq (ind rsp ~ofs:(8)) !%rbx
@@ -194,6 +196,8 @@ let library () =
    ++ set_int !%rcx
    ++ ret
    
+   (* "__div_int" renvoie le quotient des deux entiers passés en paramètres *)
+   
    ++ label "__fun___div_pos"
    ++ get_int (ind rsp ~ofs:(8)) !%rax
    ++ get_int (ind rsp ~ofs:(16)) !%r9
@@ -203,6 +207,8 @@ let library () =
    ++ set_int !%rbx
    ++ ret
    
+   (* "__mod_int" renvoie le reste dans la division euclidienne des deux entiers passés en paramètres *)
+   
    ++ label "__fun___mod_pos"
    ++ get_int (ind rsp ~ofs:(8)) !%rax
    ++ get_int (ind rsp ~ofs:(16)) !%r9
@@ -210,6 +216,8 @@ let library () =
    ++ idivq !%r9
    ++ set_int !%rdx
    ++ ret
+
+	(* "__inf_int" renvoie un booléen qui vaut "true" si le premier argument est plus petit que le deuxième *)
 
    ++ label "__fun___inf_int"
    ++ get_int (ind rsp ~ofs:(8)) !%rcx
@@ -274,7 +282,6 @@ function __fois(x :: Int64, y :: Int64)
 	__fois_int(x, y)
 end
 
-
 function __egal(x, y)
 	if __egal__uncheck(typeof(x), 0) && __egal__uncheck(typeof(y), 0)
 		return true
@@ -286,7 +293,6 @@ function __egal(x, y)
 	
    __egal__uncheck(__ref(x), __ref(y))
 end
-
 
 function __diff(x, y)
    !(x == y)
@@ -386,6 +392,8 @@ let new_label () =
    label_id := 1 + !label_id;
    "__lbl_" ^ (string_of_int !label_id)
 
+(* "code_expr" génère le code d'une expression, en prenant en paramètre l'ensemble des variables locales dans "vars", et l'expression dont il faut générer le code *)
+
 let rec code_expr vars = function
 | ExprCst(cst) -> (let label_name = "__cst_" ^ string_of_int !iCst in
    iCst := !iCst + 1;
@@ -406,6 +414,9 @@ let rec code_expr vars = function
 )
 | ExprAssignement(LvalueVar(name), value) ->
 begin
+	(* "__nb_args" et "__args_p" sont les variables qui contiennent respectivement le nombre d'arguments et le pointeur vers le début des arguments. 
+	Elles sont gérées à part pour améliorer les performances mémoire. *)
+	
 	if name = "__nb_args" then
 		set_int (ind rbp ~ofs:(-16))
 	else if name = "__args_p" then
@@ -433,6 +444,7 @@ begin
 		   )
 		) in
 		
+		(* Si on utilise une variable sans l'avoir initialisée, on génère un erreur *)
 		(match value with
 		| None -> movq position !%rax
 			++ testq !%rax !%rax
@@ -451,6 +463,8 @@ end
    ++ call ("__fun___get_" ^ attr)
    ++ addq (imm 8) !%rsp
    ++ movq (ind rax ~ofs:(8)) !%rbx
+   
+   (* Les champs d'une structure sont obligatoirement initialisés par l'appel au constructeur : pas besoin de tester. *)
    ++ (match value with
    | None -> nop
    | Some e -> (pushq !%rbx ++ code_expr vars e ++ popq rbx 
@@ -458,7 +472,7 @@ end
    )
    ++ movq (ind rbx ~ofs:(0)) !%rax
 | ExprCall(name, args) -> 
-   (* Exceptions pour les évaluations paresseuses *)
+   (* Le schéma d'appel est différent pour "et" et "ou" à cause de l'évaluation paresseuse. *)
    if name = "__et" then
       let label_sortie = new_label() in
       let [expA; expB] = args in
@@ -525,7 +539,6 @@ end
    ++ jnz label_debut
 )
 | ExprFor(var, deb, fin, bloc) ->
-   (* TODO : faire les bonnes scopes des variables *)
    let i = ExprAssignement(LvalueVar(var), None) in
    code_expr vars (ExprListe([
       ExprAssignement(LvalueVar(var), Some deb);
@@ -545,6 +558,8 @@ end
    ++ popq rbp
    ++ ret
 | _ -> nop
+
+(* "code_fct" s'occupe de générer le code assembleur d'une fonction *)
 
 let code_fct args body =
    let args_p = ref Smap.empty in
@@ -586,8 +601,12 @@ let code_fct args body =
    ++ popq rbp
    ++ ret
 
+(* "string_arg" renvoie un code julia qui trouve le "i"-ème argument passé en paramètre. *)
+
 let string_arg i =
    "__arg(__plus_int(__args_p, " ^ (string_of_int (8 * i)) ^ "))"
+
+(* "check_sig" renvoie un code julia qui teste si les paramètres données à une fonction correspondent à la signature "s". *)
 
 let check_sig s =
    let rec loop i = function
@@ -608,10 +627,14 @@ let check_sig s =
       (String.concat " && " conditions)
       ^ ")"
 
-let rec	 is_specialised f1 f2 = match f1, f2 with
+(* "is_specialised" teste si la signature f1 est une généralisation de la signature f2 *)
+
+let rec is_specialised f1 f2 = match f1, f2 with
 | [], [] -> true
 | x1 :: r1, x2 :: r2 -> (x1 = "Any" || x1 = x2) && is_specialised r1 r2
 | _ -> false
+
+(* "jl_dispatch" renvoie un code julia qui sélectionne la bonne fonction à appeler suivant le type de ses paramètres. *)
 
 let jl_dispatch l =
    let tab = Array.of_list l in
@@ -645,10 +668,12 @@ let jl_dispatch l =
    
    !julia
 
+(* "code_dispatch" s'occupe de générer le code du "dispatcher" de chaque nom de fonction, en julia. *)
+
 let code_dispatch name l = 
-   (* Exceptions *)
+   (* Il y a quelques fonctions qu'il ne faut pas dispatcher : ce sont les fonctions utilisées par les "dispatchers". *)
+   
    if Filename.check_suffix name "__uncheck" || name = "__fun___arg" || name = "__fun_print" || name = "__fun_println" then (
-      (*print_string name;*)
       label name
       ++ (List.hd l).corps
    ) else (
@@ -698,6 +723,8 @@ let code_dispatch name l =
       ) l))
    )
 
+(* "loop_exprs" parcourt toutes les expressions *)
+
 let rec loop_exprs = function
    | [] -> nop
    | x :: r -> let code = (match x with
@@ -706,12 +733,16 @@ let rec loop_exprs = function
    ) in 
    code ++ loop_exprs r   
 
+(* "loop_fcts" parcourt les déclarations de fonctions *)
+
 let rec loop_fcts = function
    | [] -> ()
    | x :: r -> (match x with
       | DeclFonction(nom, args, t, body) -> (
+      	(* On génère le code de la fonction *)
          let corps = code_fct args body in
          
+         (* On ajoute la signature et le code de la fonction dans les "dispatchers", qui seront générés par "code_dispatch", pour gérer les fonctions qui portent le même nom. *)
          dispatchers :=
             Smap.add ("__fun_" ^ nom) (
                {signature = (List.map snd args); retour = (match t with
@@ -728,15 +759,20 @@ let rec loop_fcts = function
    ); 
    loop_fcts r   
 
+(* "loop_structs" s'occupe de créer un nouveau type pour chaque structure, et de générer le code julia du constructeur de la structure, et des "getters" (les fonctions qui permettent d'accéder aux champs de structure).
+
+En effet, une construction du type point.x sera remplacé par x(point). Elle renvoie l'adresse de la case mémoire contenant le champ "point" de x. Ces "getters" passeront dans le dispatch multiple pour gérer le cas où deux structures ont des champs nommés de la même manière. *)
+
 let rec loop_structs = function
    | [] -> ()
    | x :: r -> (match x with
       | DeclStructure(nom, mut, vars) -> (
+      	(* Création du nouveau type *)
          let type_id = Smap.cardinal !types in
          types := Smap.add nom type_id !types;
          
          getters := !getters ^ 
-         (* Constructeur *)
+         (* Création du constructeur *)
          "function " ^ nom ^ "(" ^ (String.concat "," (List.map (fun x -> 
            (fst x) ^ " :: " ^ (snd x)
          ) vars)) ^ ")
@@ -749,6 +785,8 @@ let rec loop_structs = function
             ^ "
             return __deref(ptr)
          end\n"
+         
+         (* Création des getters *)
          ^ (String.concat "\n" (List.mapi (fun id x ->
             "function __get_" ^ (fst x) ^ "(s :: " ^ nom ^ ")
                return __ref(s) + " ^ (string_of_int (8 + 8 * id))^ "
@@ -759,36 +797,46 @@ let rec loop_structs = function
    );
    loop_structs r 
 
+(* "code_fichier" génère le code assembleur d'un Ast.fichier *)
+
 let code_fichier f =
+	(* On parcourt les structures *)
    loop_structs f;
+   
+   (* Pour chaque structure/type, on crée une variable du nom du type et qui vaut l'entier associé au type (voir "types").
+   Elles servent en particulier pour tester les égalités de la forme :
+   "typeof(x) == Bool" *)
    
    let code_exprs = loop_exprs (parse_str 
       (String.concat "\n" (
          Smap.fold (fun nom id l -> ((nom ^ " = " ^ (string_of_int id) ^ "\n") :: l)) !types []
       ))
    )
+   (* On parcourt toutes les expressions *)
    ++ loop_exprs f in
    
+   (* On génère le code des fonctions déclarées dans le fichier "f", des "getters" générés par "loop_struct", et de la librairie standard. Ces fonctions sont préfixées par "__fun_". *)
    loop_fcts f;
    loop_fcts (parse_str !getters);
    loop_fcts (parse_str standard_library);
    
+   (* On génère les "dispatchers", qui portent le vrai nom des fonctions (sans "__fun_"). *)
    let functions = (Smap.fold (fun name l code -> (code_dispatch name l) ++ code) !dispatchers nop) in
    
+   (* On renvoie le code final généré *)
    { text= 
    globl "main"
    ++ label "main"
    ++ pushq !%rbp
    ++ movq !%rsp !%rbp
    
-   (* Début des variables globales *)
+   (* On crée de la place pour les variables globales, "r14" contient l'addresse de base des variables globales. Elles sont initialisées avec le pointeur "NULL" pour pouvoir testé si elles ont été écrites avant leur utilisation. *)
    ++ movq !%rsp !%r14
-   
  	++ (List.fold_left (++) nop (list_init
  		(Smap.cardinal !globals) (fun x -> pushq (imm 0))
  	))
    
-   (* Création du nothing *)
+   (* Création de la variable nothing de type Nothing *)
    ++ set_nothing ()
    ++ movq !%rax (ind r14 ~ofs:(-8))
    
@@ -797,6 +845,7 @@ let code_fichier f =
    ++ movq !%rbp !%rsp
    ++ popq rbp
    
+   (* Le programme renvoie 0 s'il s'est exécuté correctement. *)
    ++ movq (imm 0) !%rax
    ++ ret
    
